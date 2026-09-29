@@ -1,0 +1,220 @@
+// 站点项目展示配置：添加项目只需往数组里加一条记录
+// status 取值：开源中 | 开发中 | 已归档；repo/demo 可选，不填则不显示对应链接
+// slug 用于详情页路由 /projects/:slug；period/role/readme 仅在详情页展示
+// readme 为 markdown 源文本，当前放本地模拟，后期替换为后端接口返回的内容
+export const projects = [
+  {
+    name: '玻璃博客',
+    slug: 'glass-blog',
+    desc: '你现在看到的这个博客。Vue 3 手写的玻璃拟态界面，文章、归档、随笔、项目展示一应俱全，后续接入后端接口。',
+    stack: ['Vue 3', 'Vite', 'Vue Router'],
+    status: '开发中',
+    repo: 'https://github.com/yourname/blog',
+    period: '2025.09 — 至今',
+    role: '独立开发',
+    readme: `# 玻璃博客
+
+你现在看到的这个博客。Vue 3 手写的液态玻璃界面，文章、归档、随笔、项目展示一应俱全。
+
+## 特性
+
+- **液态玻璃界面**：不依赖 UI 库，用 backdrop-filter 与 CSS 变量手写亮暗两套主题
+- **零请求首屏**：纯静态部署直接可访，配合入场动画保证观感
+- **完整工程链路**：Vite + ESLint + Prettier，路由、数据与视图分层清晰
+
+## 快速开始
+
+\`\`\`bash
+git clone https://github.com/yourname/blog.git
+cd blog
+npm install
+npm run dev
+\`\`\`
+
+## 后续计划
+
+- 接入后端接口，支持在线写作与评论
+- 文章自动目录与代码块复制增强
+- RSS 订阅与站点访问统计
+
+## 许可证
+
+[MIT](https://opensource.org/licenses/MIT) © yourname`,
+  },
+  {
+    name: 'Glass UI 组件库',
+    slug: 'glass-ui',
+    desc: '一套玻璃拟态风格的 Vue 组件：卡片、胶囊按钮、开关与模态框，backdrop-filter 参数全部可调，带在线文档。',
+    stack: ['Vue 3', 'TypeScript', 'highlight.js'],
+    status: '开源中',
+    repo: 'https://github.com/yourname/glass-ui',
+    demo: 'https://yourname.github.io/glass-ui',
+    period: '2025.06 — 至今',
+    role: '独立开发',
+    readme: `# Glass UI 组件库
+
+一套玻璃拟态风格的 Vue 3 组件库：卡片、胶囊按钮、开关与模态框，玻璃质感参数全部可调。
+
+## 特性
+
+- **参数全可调**：模糊半径、透明度、边框高光都暴露为 props
+- **开箱即用**：完整 TypeScript 类型定义与按需引入支持
+- **主题跟随**：useGlassTheme 组合式函数，自动跟随系统亮暗切换
+
+## 安装
+
+\`\`\`bash
+npm install @yourname/glass-ui
+\`\`\`
+
+## 使用
+
+\`\`\`html
+<template>
+  <GlassCard blur="20px" :opacity="0.55">
+    <p>一块玻璃卡片</p>
+  </GlassCard>
+</template>
+\`\`\`
+
+## 组件一览
+
+| 组件 | 说明 |
+| --- | --- |
+| GlassCard | 玻璃卡片，模糊度与透明度可配置 |
+| GlassButton | 胶囊按钮，带加载态与图标插槽 |
+| GlassModal | 模态框，焦点陷阱与 ESC 关闭 |
+| GlassSwitch | 开关，支持 v-model |
+| useGlassTheme | 组合式函数，跟随系统亮暗切换 |
+| useFocusTrap | 焦点陷阱，配合模态框使用 |`,
+  },
+  {
+    name: '极简待办 Todo',
+    slug: 'mini-todo',
+    desc: '本地优先的待办应用：零依赖纯前端实现，数据存 localStorage，支持拖拽排序与键盘快捷操作。',
+    stack: ['JavaScript', 'CSS Grid'],
+    status: '开源中',
+    repo: 'https://github.com/yourname/todo',
+    period: '2025.03 — 2025.04',
+    role: '独立开发',
+    readme: `# 极简待办 Todo
+
+本地优先的待办应用：零依赖纯前端实现，数据存 localStorage。
+
+## 特性
+
+- **零依赖**：构建产物只有两个文件，打开即用，冷启动几乎零开销
+- **键盘优先**：\`N\` 新建、\`J/K\` 移动、\`空格\` 切换完成、\`Backspace\` 删除
+- **数据本地**：不上传任何服务器，导出导入为纯 JSON 文件
+
+## 使用
+
+克隆仓库后直接用浏览器打开 \`index.html\`，或起一个静态服务：
+
+\`\`\`bash
+npx serve .
+\`\`\`
+
+## 设计理念
+
+这个项目本意是练习「克制」：功能越少，每个交互越值得打磨。`,
+  },
+  {
+    name: '天气看板',
+    slug: 'weather-board',
+    desc: '调用免费天气 API 的桌面看板：未来七天温度曲线、降水概率与生活指数，深色模式自动跟随系统。',
+    stack: ['Vue 3', 'ECharts', 'REST API'],
+    status: '已归档',
+    repo: 'https://github.com/yourname/weather',
+    period: '2023.10 — 2024.01',
+    role: '独立开发',
+    readme: `# 天气看板
+
+调用免费天气 API 的桌面看板：未来七天温度曲线、降水概率与生活指数。
+
+> **本项目已归档**：接口方调整免费额度后停止维护，温度曲线与降水概率图仍可正常渲染。
+
+## 特性
+
+- ECharts 绘制七天温度曲线与降水概率柱状图
+- 生活指数以卡片形式呈现
+- 深色模式自动跟随系统，图表配色同步过渡
+
+## 开发
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+## 一点反思
+
+当初为了赶进度把请求逻辑直接写进了组件，如今想替换数据源要动很多地方。如果重来，会先把数据层独立出来，再谈界面。`,
+  },
+  {
+    name: '命令行笔记 CliNote',
+    slug: 'clinote',
+    desc: '终端里用的 markdown 笔记工具：全文检索、标签过滤和 git 自动同步，发布到 npm 的小玩具。',
+    stack: ['Node.js', 'Commander', 'Markdown'],
+    status: '开发中',
+    repo: 'https://github.com/yourname/clionote',
+    period: '2024.08 — 2024.10',
+    role: '独立开发',
+    readme: `# 命令行笔记 CliNote
+
+终端里用的 markdown 笔记工具：全文检索、标签过滤和 git 自动同步，已发布到 npm。
+
+## 安装
+
+\`\`\`bash
+npm install -g clinote
+\`\`\`
+
+## 快速上手
+
+\`\`\`bash
+clinote new "今天的想法"   # 新建一条笔记
+clinote find "玻璃"        # 全文检索
+clinote tag glass-blog     # 给笔记打标签
+\`\`\`
+
+## 同步策略
+
+笔记目录本身就是一个 git 仓库，每次退出编辑时自动 commit，push 交给 cron 定时执行：
+
+\`\`\`bash
+*/30 * * * * clinote sync
+\`\`\`
+
+markdown 纯文本存储意味着任何时候都可以用其他编辑器打开，不会被工具绑架。`,
+  },
+  {
+    name: '像素头像生成器',
+    slug: 'pixel-avatar',
+    desc: '输入任意字符串生成唯一的对称像素头像，纯 Canvas 绘制，可以一键导出 PNG 用作网站头像。',
+    stack: ['Canvas', 'Vite'],
+    status: '开源中',
+    demo: 'https://yourname.github.io/pixel-avatar',
+    period: '2024.05 — 2024.05',
+    role: '独立开发',
+    readme: `# 像素头像生成器
+
+输入任意字符串生成唯一的对称像素头像，纯 Canvas 绘制，可一键导出 PNG 用作网站头像。
+
+## 原理
+
+对输入字符串取哈希后作为随机种子，先在 5×5 网格的左半边随机填色，再镜像到右半边。同样的输入永远得到同样的头像，因此天然可以用作用户名的视觉指纹。
+
+## 使用
+
+\`\`\`js
+import { createAvatar } from './src/avatar.js'
+
+createAvatar('hello', { size: 256 })
+\`\`\`
+
+## 在线体验
+
+打开 <https://yourname.github.io/pixel-avatar> 即可使用，支持 128 / 256 / 512 三种尺寸导出。`,
+  },
+]

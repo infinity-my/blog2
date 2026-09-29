@@ -1,0 +1,98 @@
+package com.example.bloghd.config;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+/**
+ * 访客账号的鉴权配置。
+ * 密码校验在 AuthController 里手工完成：要挂登录限流，并把未知邮箱与错误密码
+ * 合并成同一个 BAD_CREDENTIALS 失败，不留邮箱探测口；这里只负责过滤链、CSRF、
+ * 密码编码器与会话相关的组件。
+ */
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/admin/login").permitAll()
+                        // 后台写接口只认博主身份，访客与匿名一律 403
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/auth/delete").authenticated()
+                        .anyRequest().permitAll())
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRequestHandler(csrfRequestHandler()))
+                .addFilterAfter(new ForceCsrfTokenFilter(), CsrfFilter.class)
+                // 不配入口点，未登录会得到 403 而不是 401
+                .exceptionHandling(e -> e.authenticationEntryPoint(
+                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));
+        return http.build();
+    }
+
+    /**
+     * 用非掩码 handler，让 request attribute 与 cookie 值一致 —— 前端读 XSRF-TOKEN
+     * cookie 后回传 X-XSRF-TOKEN 头部才能通过；用 Xor 掩码 handler 会被判为不匹配。
+     */
+    private static CsrfTokenRequestAttributeHandler csrfRequestHandler() {
+        return new CsrfTokenRequestAttributeHandler();
+    }
+
+    /** CSRF token 是惰性加载的，不主动取一次就永远不下发 cookie，前端也就无从回传 */
+    private static final class ForceCsrfTokenFilter extends OncePerRequestFilter {
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest request,
+                                       HttpServletResponse response,
+                                       FilterChain filterChain) throws ServletException, IOException {
+            CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+            if (token != null) {
+                token.getToken();
+            }
+            filterChain.doFilter(request, response);
+        }
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    SecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
+    }
+
+    /**
+     * 手工登录不会自动获得会话固定防护：这个策略只被框架自己的认证过滤器调用，
+     * 且默认不会注册成 bean。AuthController 必须显式调用它。
+     */
+    @Bean
+    SessionAuthenticationStrategy sessionAuthenticationStrategy() {
+        return new ChangeSessionIdAuthenticationStrategy();
+    }
+}

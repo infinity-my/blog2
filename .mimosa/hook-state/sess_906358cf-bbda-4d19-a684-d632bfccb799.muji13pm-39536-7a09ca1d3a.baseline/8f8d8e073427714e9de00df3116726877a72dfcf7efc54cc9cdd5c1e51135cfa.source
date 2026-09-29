@@ -1,0 +1,272 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.entity.Comment;
+import com.example.bloghd.entity.LikeRecord;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.mapper.LikeRecordMapper;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import com.example.bloghd.security.AuthException;
+import com.example.bloghd.security.AuthPrincipal;
+import com.example.bloghd.security.CurrentUser;
+import com.example.bloghd.security.LoginRateLimiter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+/**
+ * 访客账号：注册、登录、退出、查当前身份、注销。
+ * 登录态走服务端会话，凭证只以 HttpOnly cookie 回传，前端拿不到也存不下。
+ */
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private static final Pattern EMAIL_RE = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final int MAX_EMAIL = 200;
+    private static final int MIN_PASSWORD = 6;
+    // BCrypt 只取前 72 字节，超长会被静默截断，所以在入口就挡掉
+    private static final int MAX_PASSWORD = 72;
+    private static final int MAX_NAME = 20;
+    // 占位 BCrypt 串：邮箱不存在时也对它跑一次比对，让「邮箱未注册」和「密码错误」耗时一致，堵住时序探测
+    private static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
+    private final AppUserMapper appUserMapper;
+    private final MessageMapper messageMapper;
+    private final MessageReplyMapper messageReplyMapper;
+    private final CommentMapper commentMapper;
+    private final LikeRecordMapper likeRecordMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final SecurityContextRepository securityContextRepository;
+    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
+    private final CurrentUser currentUser;
+    private final LoginRateLimiter rateLimiter;
+
+    public AuthController(AppUserMapper appUserMapper,
+                          MessageMapper messageMapper,
+                          MessageReplyMapper messageReplyMapper,
+                          CommentMapper commentMapper,
+                          LikeRecordMapper likeRecordMapper,
+                          PasswordEncoder passwordEncoder,
+                          SecurityContextRepository securityContextRepository,
+                          SessionAuthenticationStrategy sessionAuthenticationStrategy,
+                          CurrentUser currentUser,
+                          LoginRateLimiter rateLimiter) {
+        this.appUserMapper = appUserMapper;
+        this.messageMapper = messageMapper;
+        this.messageReplyMapper = messageReplyMapper;
+        this.commentMapper = commentMapper;
+        this.likeRecordMapper = likeRecordMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.securityContextRepository = securityContextRepository;
+        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
+        this.currentUser = currentUser;
+        this.rateLimiter = rateLimiter;
+    }
+
+    /** 注册成功即登录，省掉一次多余的登录操作 */
+    @PostMapping("/register")
+    public ResponseEntity<AuthUserView> register(@RequestBody RegisterForm form,
+                                                HttpServletRequest request,
+                                                HttpServletResponse response) {
+        String email = normalizeEmail(form.email());
+        String name = form.name() == null ? "" : form.name().trim();
+        String password = form.password() == null ? "" : form.password();
+        String ip = request.getRemoteAddr();
+        rateLimiter.checkOrThrow(email, ip);
+
+        if (email.isEmpty() || email.length() > MAX_EMAIL || !EMAIL_RE.matcher(email).matches()) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL", "请输入正确的邮箱地址");
+        }
+        if (name.isEmpty()) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_NAME", "先起个昵称吧，留言时会显示它");
+        }
+        if (name.length() > MAX_NAME) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_NAME", "昵称最长 " + MAX_NAME + " 个字符");
+        }
+        if (password.length() < MIN_PASSWORD) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD", "密码至少 " + MIN_PASSWORD + " 位");
+        }
+        if (password.length() > MAX_PASSWORD) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD", "密码最长 " + MAX_PASSWORD + " 位");
+        }
+
+        AppUser account = new AppUser();
+        account.setEmail(email);
+        account.setName(name);
+        account.setPasswordHash(passwordEncoder.encode(password));
+        account.setCreatedAt(LocalDateTime.now().withNano(0));
+        try {
+            appUserMapper.insert(account);
+        } catch (DuplicateKeyException e) {
+            // 靠唯一索引兜底，先查后插会有并发窗口
+            // 反复撞同一邮箱也计入限流，注册接口不该被当成「查注册情况」的探测口
+            rateLimiter.recordFailure(email, ip);
+            throw new AuthException(HttpStatus.CONFLICT, "EMAIL_TAKEN", "这个邮箱已经注册过了，直接登录吧");
+        }
+
+        rateLimiter.reset(email, ip);
+        login(new AuthPrincipal(account.getId(), account.getEmail(), account.getName()), request, response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(AuthUserView.from(account));
+    }
+
+    @PostMapping("/login")
+    public AuthUserView login(@RequestBody LoginForm form,
+                             HttpServletRequest request,
+                             HttpServletResponse response) {
+        String email = normalizeEmail(form.email());
+        String password = form.password() == null ? "" : form.password();
+        String ip = request.getRemoteAddr();
+
+        rateLimiter.checkOrThrow(email, ip);
+
+        AppUser account = findByEmail(email);
+        // 不区分「邮箱未注册」与「密码错误」，统一成一个失败，登录口不再泄露注册情况
+        boolean passwordMatches = passwordEncoder.matches(password,
+                account != null ? account.getPasswordHash() : DUMMY_PASSWORD_HASH);
+        if (account == null || !passwordMatches) {
+            rateLimiter.recordFailure(email, ip);
+            throw new AuthException(HttpStatus.UNAUTHORIZED, "BAD_CREDENTIALS", "邮箱或密码不对，再试一次");
+        }
+
+        rateLimiter.reset(email, ip);
+        login(new AuthPrincipal(account.getId(), account.getEmail(), account.getName()), request, response);
+        return AuthUserView.from(account);
+    }
+
+    @GetMapping("/me")
+    public AuthUserView me() {
+        AuthPrincipal principal = currentUser.require();
+        return new AuthUserView(principal.id(), principal.email(), principal.name());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        endSession(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 注销账号：匿名化本人留言后删除账号 —— 留言内容是公开资产，不该跟着账号一起消失 */
+    @PostMapping("/delete")
+    @Transactional
+    public ResponseEntity<Void> delete(@RequestBody DeleteForm form, HttpServletRequest request) {
+        AuthPrincipal principal = currentUser.require();
+        String ip = request.getRemoteAddr();
+        // 已登录状态下反复试错密码同样是爆破面，一并限流
+        rateLimiter.checkOrThrow(principal.email(), ip);
+        AppUser account = appUserMapper.selectById(principal.id());
+        if (account == null) {
+            throw new AuthException(HttpStatus.UNAUTHORIZED, "NOT_AUTHENTICATED", "还没登录");
+        }
+
+        String password = form.password() == null ? "" : form.password();
+        if (!passwordEncoder.matches(password, account.getPasswordHash())) {
+            rateLimiter.recordFailure(principal.email(), ip);
+            throw new AuthException(HttpStatus.FORBIDDEN, "WRONG_PASSWORD", "密码不对，无法注销");
+        }
+        rateLimiter.reset(principal.email(), ip);
+
+        messageMapper.update(null, Wrappers.<Message>lambdaUpdate()
+                .set(Message::getUserId, null)
+                .eq(Message::getUserId, account.getId()));
+        messageReplyMapper.update(null, Wrappers.<MessageReply>lambdaUpdate()
+                .set(MessageReply::getUserId, null)
+                .eq(MessageReply::getUserId, account.getId()));
+        commentMapper.update(null, Wrappers.<Comment>lambdaUpdate()
+                .set(Comment::getUserId, null)
+                .eq(Comment::getUserId, account.getId()));
+        // 点赞身份随账号消失：匿名 cookie 重新点赞是新记录，不会顶替已删账号的记录
+        likeRecordMapper.delete(new LambdaQueryWrapper<LikeRecord>()
+                .eq(LikeRecord::getVisitorKey, "u:" + account.getId()));
+        appUserMapper.deleteById(account.getId());
+
+        endSession(request);
+        return ResponseEntity.noContent().build();
+    }
+
+    private void login(AuthPrincipal principal,
+                       HttpServletRequest request,
+                       HttpServletResponse response) {
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_VISITOR")));
+
+        // 手工登录不会自动触发会话固定防护，必须自己调，否则登录前后 session id 不变
+        sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        // Security 6+ 用 SecurityContextHolderFilter，不会自动把上下文回写会话
+        securityContextRepository.saveContext(context, request, response);
+    }
+
+    private void endSession(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
+    }
+
+    private AppUser findByEmail(String email) {
+        return appUserMapper.selectOne(Wrappers.<AppUser>lambdaQuery().eq(AppUser::getEmail, email));
+    }
+
+    /** 邮箱统一小写去空格，避免大小写差异绕过唯一索引 */
+    private static String normalizeEmail(String raw) {
+        return raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record RegisterForm(String email, String name, String password) {
+    }
+
+    public record LoginForm(String email, String password) {
+    }
+
+    public record DeleteForm(String password) {
+    }
+
+    public record AuthUserView(Long id, String email, String name) {
+
+        static AuthUserView from(AppUser user) {
+            return new AuthUserView(user.getId(), user.getEmail(), user.getName());
+        }
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

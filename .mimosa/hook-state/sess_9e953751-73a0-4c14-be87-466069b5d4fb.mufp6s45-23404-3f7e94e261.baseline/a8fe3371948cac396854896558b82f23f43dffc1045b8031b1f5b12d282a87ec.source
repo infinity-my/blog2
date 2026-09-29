@@ -1,0 +1,6 @@
+// 本机持久化 key：账号与登录态已改由服务端会话承载，这里只留仍然前端自持的数据
+export const MESSAGES_KEY = 'blog-qd:messages'
+export const LIKED_KEY = 'blog-qd:liked-messages'
+export const VISITOR_NAME_KEY = 'blog-qd:visitor-name'
+// 简历解锁标记：只放当前标签页会话，关掉浏览器再进要重新输口令
+export const RESUME_UNLOCK_KEY = 'blog-qd:resume-unlocked'

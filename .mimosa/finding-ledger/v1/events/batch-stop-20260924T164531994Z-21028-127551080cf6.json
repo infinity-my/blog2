@@ -1,0 +1,222 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260924T164531994Z-21028-127551080cf6",
+  "runId": "20260924T164531994Z-21028-127551080cf6",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java",
+        "detail": "21 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java",
+        "detail": "candidate_limit_exceeded: 21 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "bee53af866748cf4495d314664fd3ea0d86ab84af5060e5f9e759a97f238c828",
+  "rulesVersion": "unavailable",
+  "sessionHash": "caf7098442e43eb8e8cfe2a98b51dc75be8762e38ad9e654a438826e6ff85a2c",
+  "reportRef": ".mimosa/reports/task-review-sess_9fe33aed-ed31-4e24-aaa3-89412522c96f-20260924T164531994Z-21028-127551080cf6.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/support/AssetStorage.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-qd/src/api/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/router/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/api/admin.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/api/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/AuthControllerTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/MessageControllerTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/PostControllerTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/ResumeControllerTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-24T16:45:32.392Z"
+}

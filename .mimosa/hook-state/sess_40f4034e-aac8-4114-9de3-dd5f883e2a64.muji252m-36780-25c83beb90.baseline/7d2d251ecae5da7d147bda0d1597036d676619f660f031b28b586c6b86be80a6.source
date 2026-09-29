@@ -1,0 +1,222 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.dto.MessageView;
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import com.example.bloghd.security.AuthException;
+import com.example.bloghd.security.CurrentUser;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+/**
+ * 后台账号管理：多个管理员共存，初始账号由 AdminAccountSeeder 按配置种入。
+ * 服务端兜两条底线 —— 不能停用/删除当前登录的账号，场上至少留一个启用账号；
+ * 密码只收明文新值，BCrypt 落库，任何接口都不回传哈希。
+ */
+@RestController
+@RequestMapping("/api/admin/accounts")
+public class AdminAccountController {
+
+    private static final Pattern USERNAME_RE = Pattern.compile("^[A-Za-z0-9._-]{2,50}$");
+    private static final int MIN_PASSWORD = 6;
+    // BCrypt 只取前 72 字节，超长会被静默截断，所以在入口就挡掉
+    private static final int MAX_PASSWORD = 72;
+    private static final int MAX_NAME = 20;
+
+    private final AdminAccountMapper adminAccountMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final CurrentUser currentUser;
+
+    public AdminAccountController(AdminAccountMapper adminAccountMapper,
+                                  PasswordEncoder passwordEncoder,
+                                  CurrentUser currentUser) {
+        this.adminAccountMapper = adminAccountMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.currentUser = currentUser;
+    }
+
+    @GetMapping
+    public List<AccountView> list() {
+        Long selfId = currentUser.require().id();
+        return adminAccountMapper.selectList(new LambdaQueryWrapper<AdminAccount>()
+                        .orderByAsc(AdminAccount::getId))
+                .stream()
+                .map(a -> AccountView.from(a, a.getId().equals(selfId)))
+                .toList();
+    }
+
+    @PostMapping
+    public ResponseEntity<AccountView> create(@RequestBody AccountForm form) {
+        String username = normalizeUsername(form.username());
+        String displayName = normalizeName(form.displayName());
+        String password = form.password() == null ? "" : form.password();
+        validateUsername(username);
+        validateName(displayName);
+        validatePassword(password);
+
+        AdminAccount account = new AdminAccount();
+        account.setUsername(username);
+        account.setDisplayName(displayName);
+        account.setPasswordHash(passwordEncoder.encode(password));
+        account.setEnabled(true);
+        account.setCreatedAt(LocalDateTime.now().withNano(0));
+        try {
+            adminAccountMapper.insert(account);
+        } catch (DuplicateKeyException e) {
+            // 靠唯一索引兜底，先查后插会有并发窗口
+            throw new AuthException(HttpStatus.CONFLICT, "USERNAME_TAKEN", "这个用户名已经被占用了");
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(AccountView.from(account, false));
+    }
+
+    /** 编辑：displayName / enabled / password 三项都可选传，password 留空表示不改 */
+    @PutMapping("/{id}")
+    public AccountView update(@PathVariable Long id, @RequestBody AccountForm form) {
+        AdminAccount account = requireAccount(id);
+        Long selfId = currentUser.require().id();
+
+        String displayName = form.displayName() == null
+                ? account.getDisplayName()
+                : normalizeName(form.displayName());
+        validateName(displayName);
+
+        Boolean enabled = form.enabled() == null ? account.getEnabled() : form.enabled();
+        if (!Boolean.TRUE.equals(enabled) && id.equals(selfId)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "CANNOT_DISABLE_SELF", "不能停用当前登录的账号");
+        }
+        ensureNotLastEnabled(account, enabled);
+
+        account.setDisplayName(displayName);
+        account.setEnabled(enabled);
+        String password = form.password() == null ? "" : form.password();
+        if (!password.isEmpty()) {
+            validatePassword(password);
+            account.setPasswordHash(passwordEncoder.encode(password));
+        }
+        adminAccountMapper.updateById(account);
+        return AccountView.from(account, id.equals(selfId));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        AdminAccount account = requireAccount(id);
+        if (id.equals(currentUser.require().id())) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "CANNOT_DELETE_SELF", "不能删除当前登录的账号");
+        }
+        ensureNotLastEnabled(account, false);
+        adminAccountMapper.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 改自己的密码：原密码必须对上；改完当前会话仍然有效（会话身份在登录时固化） */
+    @PutMapping("/password")
+    public ResponseEntity<Void> changePassword(@RequestBody ChangePasswordForm form) {
+        AdminAccount account = requireAccount(currentUser.require().id());
+        String oldPassword = form.oldPassword() == null ? "" : form.oldPassword();
+        if (!passwordEncoder.matches(oldPassword, account.getPasswordHash())) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "WRONG_PASSWORD", "原密码不对，改不了");
+        }
+        String newPassword = form.newPassword() == null ? "" : form.newPassword();
+        validatePassword(newPassword);
+        account.setPasswordHash(passwordEncoder.encode(newPassword));
+        adminAccountMapper.updateById(account);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 目标账号从启用变非启用（停用/删除）时，排除它之后必须还有启用的账号 */
+    private void ensureNotLastEnabled(AdminAccount account, boolean targetEnabled) {
+        if (!Boolean.TRUE.equals(account.getEnabled()) || Boolean.TRUE.equals(targetEnabled)) {
+            return;
+        }
+        Long others = adminAccountMapper.selectCount(Wrappers.<AdminAccount>lambdaQuery()
+                .eq(AdminAccount::getEnabled, true)
+                .ne(AdminAccount::getId, account.getId()));
+        if (others == null || others == 0) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "LAST_ADMIN", "至少要保留一个启用的账号");
+        }
+    }
+
+    private AdminAccount requireAccount(Long id) {
+        AdminAccount account = adminAccountMapper.selectById(id);
+        if (account == null) {
+            throw new AuthException(HttpStatus.NOT_FOUND, "NOT_FOUND", "账号不存在");
+        }
+        return account;
+    }
+
+    private static void validateUsername(String username) {
+        if (!USERNAME_RE.matcher(username).matches()) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_USERNAME",
+                    "用户名 2-50 位，只能用字母、数字和 . _ -");
+        }
+    }
+
+    private static void validateName(String displayName) {
+        if (displayName.isEmpty() || displayName.length() > MAX_NAME) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_NAME",
+                    "显示名 1-" + MAX_NAME + " 个字符");
+        }
+    }
+
+    private static void validatePassword(String password) {
+        if (password.length() < MIN_PASSWORD || password.length() > MAX_PASSWORD) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD",
+                    "密码长度需要 " + MIN_PASSWORD + " 到 " + MAX_PASSWORD + " 位");
+        }
+    }
+
+    private static String normalizeName(String raw) {
+        return raw == null ? "" : raw.trim();
+    }
+
+    /** username 整体转小写，避免大小写变体绕过唯一索引 */
+    private static String normalizeUsername(String raw) {
+        return raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record AccountForm(String username, String displayName, String password, Boolean enabled) {
+    }
+
+    public record ChangePasswordForm(String oldPassword, String newPassword) {
+    }
+
+    public record AccountView(Long id,
+                              String username,
+                              String displayName,
+                              boolean enabled,
+                              String time,
+                              boolean current) {
+
+        static AccountView from(AdminAccount account, boolean current) {
+            return new AccountView(account.getId(), account.getUsername(), account.getDisplayName(),
+                    Boolean.TRUE.equals(account.getEnabled()),
+                    MessageView.stamp(account.getCreatedAt()), current);
+        }
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

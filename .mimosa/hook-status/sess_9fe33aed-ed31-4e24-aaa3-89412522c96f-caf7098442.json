@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-24T16:45:13.554Z",
+  "sessionId": "sess_9fe33aed-ed31-4e24-aaa3-89412522c96f",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "C:\\Users\\mszin\\.zcode\\cli\\memories\\projects\\gr-blog-0aaf93db93675dac\\memory\\gr-blog-structure.md",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 4,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

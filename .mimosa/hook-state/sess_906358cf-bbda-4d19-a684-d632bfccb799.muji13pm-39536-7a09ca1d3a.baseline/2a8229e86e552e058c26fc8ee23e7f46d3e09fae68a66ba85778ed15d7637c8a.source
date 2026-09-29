@@ -1,0 +1,33 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.EssayView;
+import com.example.bloghd.entity.Essay;
+import com.example.bloghd.mapper.EssayMapper;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/essays")
+public class EssayController {
+
+    private final EssayMapper essayMapper;
+
+    public EssayController(EssayMapper essayMapper) {
+        this.essayMapper = essayMapper;
+    }
+
+    /** 随笔列表，时间倒序 */
+    @GetMapping
+    public List<EssayView> list() {
+        return essayMapper
+                .selectList(new LambdaQueryWrapper<Essay>()
+                        .orderByDesc(Essay::getEssayDate, Essay::getId))
+                .stream()
+                .map(EssayView::from)
+                .toList();
+    }
+}

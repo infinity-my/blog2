@@ -1,0 +1,21 @@
+// 无头像图片时的兜底：昵称首字 + 按昵称哈希取柔和渐变底色
+const AVATAR_GRADIENTS = [
+  ['#667eea', '#764ba2'],
+  ['#4facfe', '#00f2fe'],
+  ['#f093fb', '#f5576c'],
+  ['#f6d365', '#fda085'],
+  ['#43e97b', '#38f9d7'],
+  ['#a18cd1', '#fbc2eb'],
+]
+
+export function avatarGradient(name) {
+  let hash = 0
+  for (const ch of String(name ?? '')) hash = (hash + ch.codePointAt(0)) % AVATAR_GRADIENTS.length
+  const [from, to] = AVATAR_GRADIENTS[hash]
+  return `linear-gradient(135deg, ${from}, ${to})`
+}
+
+export function avatarText(name) {
+  const text = String(name ?? '').trim()
+  return text.slice(0, 1) || '匿'
+}

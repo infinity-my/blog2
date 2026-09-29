@@ -1,0 +1,22 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.Essay;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/** 随笔视图，text 为段落数组 */
+public record EssayView(
+        Long id,
+        LocalDate date,
+        String mood,
+        String location,
+        List<String> text,
+        List<String> images,
+        List<String> tags) {
+
+    public static EssayView from(Essay e) {
+        return new EssayView(e.getId(), e.getEssayDate(), e.getMood(), e.getLocation(),
+                e.getParagraphs(), e.getImages(), e.getTags());
+    }
+}

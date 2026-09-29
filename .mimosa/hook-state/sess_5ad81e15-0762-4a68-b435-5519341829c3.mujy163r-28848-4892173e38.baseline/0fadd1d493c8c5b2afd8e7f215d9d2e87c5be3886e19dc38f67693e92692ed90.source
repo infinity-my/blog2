@@ -1,0 +1,119 @@
+// 后台请求封装：与 blog-qd 的 src/api/index.js 同一套约定 ——
+// POST/PUT/DELETE 自动带 CSRF 头，错误统一转成带 code / message / status 的 Error。
+export const BASE = '/api'
+
+export const CSRF_HEADER = 'X-XSRF-TOKEN'
+const FALLBACK_MESSAGE = '出错了，稍后再试一次。'
+function readCsrfCookie() {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+/**
+ * CSRF cookie 由后端在首个响应上下发；直接落在 /login 上一个请求都没发生时，
+ * 提交会被 CSRF 拦成 403。这里补一次轻量 GET 让 cookie 就位。
+ */
+export async function csrfToken() {
+  const existing = readCsrfCookie()
+  if (existing) return existing
+  try {
+    await fetch(`${BASE}/stats`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  } catch {
+    // 网络不通时交给后续请求自己报错，这里不掩盖真实原因
+  }
+  return readCsrfCookie()
+}
+
+export async function toError(response) {
+  let code = 'UNKNOWN_ERROR'
+  let message = FALLBACK_MESSAGE
+  try {
+    const body = await response.json()
+    if (body?.code) code = body.code
+    if (body?.message) message = body.message
+  } catch {
+    // 404（notFound().build()）与过滤链直接拒绝的 401 都没有响应体
+  }
+  const error = new Error(message)
+  error.status = response.status
+  error.code = code
+  return error
+}
+
+// 登录接口的 401 有专属语义（口令不对），由登录页就地消化，不算「会话过期」
+function isLocallyHandledAuthPath(path) {
+  return path === '/admin/login'
+}
+
+async function send(path, options) {
+  let response
+  try {
+    response = await fetch(`${BASE}${path}`, { credentials: 'same-origin', ...options })
+  } catch {
+    const error = new Error('网络连接失败，请稍后再试。')
+    error.status = 0
+    error.code = 'NETWORK_ERROR'
+    throw error
+  }
+  if (!response.ok) {
+    const error = await toError(response)
+    // 会话在服务端到期/重启后失效：全局兜一次（auth store 清登录态，路由守卫引导重登）
+    if (error.status === 401 && !isLocallyHandledAuthPath(path)) {
+      window.dispatchEvent(new CustomEvent('api:unauthorized'))
+    }
+    throw error
+  }
+  return response.status === 204 ? null : response.json()
+}
+
+/**
+ * GET JSON；params 非空时拼成查询串
+ * @returns {Promise<any>}
+ */
+export async function request(path, params) {
+  const qs = params && Object.keys(params).length ? `?${new URLSearchParams(params)}` : ''
+  return send(path + qs, { headers: { Accept: 'application/json' } })
+}
+
+/**
+ * POST JSON；自动携带 CSRF 头
+ * @returns {Promise<any>}
+ */
+export async function post(path, body) {
+  return send(path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: await csrfToken(),
+    },
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+/**
+ * PUT JSON
+ * @returns {Promise<any>}
+ */
+export async function put(path, body) {
+  return send(path, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: await csrfToken(),
+    },
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+/**
+ * DELETE；204 时返回 null
+ * @returns {Promise<any>}
+ */
+export async function del(path) {
+  return send(path, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', [CSRF_HEADER]: await csrfToken() },
+  })
+}

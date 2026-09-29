@@ -1,0 +1,40 @@
+package com.example.bloghd.support;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.VisitLog;
+import com.example.bloghd.mapper.VisitLogMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+
+/**
+ * 访客行为流水（visit_log）的留存上限：此前全仓库没有任何删除路径，表只增不减，
+ * 聚合读与磁盘占用都随时间线性膨胀。这里统一持有留存窗口——
+ * 每天低峰期删掉窗口外的旧行，管理端的游客/行为聚合也只统计窗口内。
+ */
+@Component
+public class TelemetryRetention {
+
+    private final VisitLogMapper visitLogMapper;
+    private final long retentionDays;
+
+    public TelemetryRetention(VisitLogMapper visitLogMapper,
+                              @Value("${blog.telemetry.retention-days:90}") long retentionDays) {
+        this.visitLogMapper = visitLogMapper;
+        this.retentionDays = retentionDays;
+    }
+
+    /** 当前统计窗口的起点：管理端聚合与定时清理共用同一个边界 */
+    public LocalDateTime cutoff() {
+        return LocalDateTime.now().minusDays(retentionDays);
+    }
+
+    /** 每天 05:00 清理留存窗口外的行为流水 */
+    @Scheduled(cron = "0 0 5 * * *")
+    public void purge() {
+        visitLogMapper.delete(new LambdaQueryWrapper<VisitLog>()
+                .lt(VisitLog::getCreatedAt, cutoff()));
+    }
+}

@@ -1,0 +1,66 @@
+package com.example.bloghd.security;
+
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class AdminAccountSeederTest {
+
+    private final AdminAccountMapper mapper = mock(AdminAccountMapper.class);
+    private final PasswordEncoder encoder = mock(PasswordEncoder.class);
+
+    @Test
+    void refusesToSeedWithBlankCredentials() {
+        // 空白用户名或口令都要拒绝启动种入：内置默认口令等于把后台钥匙写进仓库
+        assertThatThrownBy(new AdminAccountSeeder(mapper, encoder, "", "some-value")::seed)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ADMIN_USERNAME");
+        assertThatThrownBy(new AdminAccountSeeder(mapper, encoder, "admin", "  ")::seed)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ADMIN_PASSWORD");
+
+        // 拒绝的同时不许碰数据库
+        verify(mapper, never()).selectCount(any());
+        verify(mapper, never()).insert(any(AdminAccount.class));
+    }
+
+    @Test
+    void seedsConfiguredAccountWhenTableEmpty() {
+        when(mapper.selectCount(any())).thenReturn(0L);
+        when(encoder.encode(anyString())).thenReturn("encoded-hash");
+        // 口令运行期随机生成：源码不出现凭据字面量，扫描器也不会误报
+        String password = "pwd-" + UUID.randomUUID().toString().substring(0, 12);
+
+        new AdminAccountSeeder(mapper, encoder, "ops-admin", password).seed();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AdminAccount.class);
+        verify(mapper).insert(captor.capture());
+        assertThat(captor.getValue().getUsername()).isEqualTo("ops-admin");
+        assertThat(captor.getValue().getPasswordHash()).isEqualTo("encoded-hash");
+        assertThat(captor.getValue().getEnabled()).isTrue();
+    }
+
+    @Test
+    void skipsExistingAccountWithoutTouchingPassword() {
+        // skip-if-exists：表里已有同名账号就跳过，后台改过的口令不会被配置盖回
+        when(mapper.selectCount(any())).thenReturn(1L);
+        String password = "pwd-" + UUID.randomUUID().toString().substring(0, 12);
+
+        new AdminAccountSeeder(mapper, encoder, "admin", password).seed();
+
+        verify(mapper, never()).insert(any(AdminAccount.class));
+        verify(encoder, never()).encode(anyString());
+    }
+}

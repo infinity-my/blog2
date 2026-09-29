@@ -1,0 +1,141 @@
+import { BASE, CSRF_HEADER, csrfToken, del, post, put, request, toError } from './index'
+
+// 后台专用接口。列表/详情复用公开的 /api/posts 与 /api/messages（本就公开），
+// 这里只封装「写」的那一半；失败抛出带 code / message 的 Error，message 可原样展示。
+/**
+ * 管理员登录；用户名或密码不对抛 code=BAD_CREDENTIALS，失败过多抛 code=TOO_MANY_ATTEMPTS
+ * @returns {Promise<{name:string}>}
+ */
+export function adminLogin(username, password) {
+  return post('/admin/login', { username, password })
+}
+
+/**
+ * 当前管理员身份；会话失效时抛 status=401
+ * @returns {Promise<{name:string}>}
+ */
+export function fetchAdminMe() {
+  return request('/admin/me')
+}
+
+export function adminLogout() {
+  return post('/admin/logout')
+}
+
+/**
+ * 文章完整表单：正文是结构化块数组（p/h2/quote/code/ul），由后端序列化落库
+ * @returns {Promise<{id:number,title:string}>} 新建返回 201 与新 id
+ */
+export function createPost(payload) {
+  return post('/admin/posts', payload)
+}
+
+export function updatePost(id, payload) {
+  return put(`/admin/posts/${id}`, payload)
+}
+
+/** 删除文章；id 不存在时抛 status=404 */
+export function deletePost(id) {
+  return del(`/admin/posts/${id}`)
+}
+
+/** 删除留言主楼，回复一并删除 */
+export function deleteMessage(id) {
+  return del(`/admin/messages/${id}`)
+}
+
+/** 只删一条回复，主楼保留 */
+export function deleteReply(id) {
+  return del(`/admin/messages/replies/${id}`)
+}
+
+/**
+ * 后台评论列表（最新在前），带文章标题便于定位
+ * @returns {Promise<Array<{id:number,articleId:number,articleTitle:string,userId:number|null,name:string,time:string,content:string}>>}
+ */
+export function fetchAdminComments() {
+  return request('/admin/comments')
+}
+
+/** 删除单条评论；id 不存在时抛 status=404 */
+export function deleteComment(id) {
+  return del(`/admin/comments/${id}`)
+}
+
+/**
+ * 以博主身份回复留言（回复带「博主」徽标）；主楼不存在抛 status=404
+ * @param {number|string} messageId
+ * @param {{ content: string, replyTo?: string|null }} payload
+ * @returns {Promise<{id:number,name:string,author:boolean,time:string,content:string,replyTo:string|null}>}
+ */
+export function adminReply(messageId, payload) {
+  return post(`/admin/messages/${messageId}/replies`, payload)
+}
+
+/**
+ * 上传图片，返回 { url }（/api/assets/** 路径）。
+ * multipart 与 JSON 封装不同源：这里直接用 FormData，CSRF 头沿用同一套 cookie 约定。
+ * @param {File} file
+ * @param {string} [folder] 素材子目录（album / essay / misc）
+ * @returns {Promise<{url:string}>}
+ */
+export async function uploadAsset(file, folder = 'misc') {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('folder', folder)
+  let response
+  try {
+    response = await fetch(`${BASE}/admin/upload`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', [CSRF_HEADER]: await csrfToken() },
+      body,
+    })
+  } catch {
+    const error = new Error('网络连接失败，请稍后再试。')
+    error.status = 0
+    error.code = 'NETWORK_ERROR'
+    throw error
+  }
+  if (!response.ok) {
+    const error = await toError(response)
+    if (error.status === 401) {
+      window.dispatchEvent(new CustomEvent('api:unauthorized'))
+    }
+    throw error
+  }
+  return response.json()
+}
+
+// ---------- 相册 / 随笔 / 站点配置 ----------
+
+/** 新建照片；src 必须是 /api/assets/** 下的上传素材 */
+export function createPhoto(payload) {
+  return post('/admin/photos', payload)
+}
+
+export function updatePhoto(id, payload) {
+  return put(`/admin/photos/${id}`, payload)
+}
+
+export function deletePhoto(id) {
+  return del(`/admin/photos/${id}`)
+}
+
+/** 新建随笔；text 是段落数组 */
+export function createEssay(payload) {
+  return post('/admin/essays', payload)
+}
+
+export function updateEssay(id, payload) {
+  return put(`/admin/essays/${id}`, payload)
+}
+
+export function deleteEssay(id) {
+  return del(`/admin/essays/${id}`)
+}
+
+/** 站点配置：字段为空串表示清掉该配置，前台回落本地素材 */
+export function updateSite(payload) {
+  return put('/admin/site', payload)
+}

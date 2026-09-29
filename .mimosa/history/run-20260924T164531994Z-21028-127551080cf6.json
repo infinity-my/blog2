@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260924T164531994Z-21028-127551080cf6",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java: candidate_limit_exceeded: 21 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline-read:blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java: baseline_snapshot_unreadable: file is missing from task baseline",
+    "baseline-read:blog-hd/src/main/java/com/example/bloghd/entity/Comment.java: baseline_snapshot_unreadable: file is missing from task baseline"
+  ],
+  "target": ".",
+  "revision": null,
+  "diffHash": "bee53af866748cf4495d314664fd3ea0d86ab84af5060e5f9e759a97f238c828",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-09-24T16:45:31.994Z",
+  "timing": {
+    "startedAt": "2026-09-24T16:45:30.055Z",
+    "completedAt": "2026-09-24T16:45:31.994Z",
+    "durationMs": 1939
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 7,
+      "project_check_failed": 8
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_9fe33aed-ed31-4e24-aaa3-89412522c96f-20260924T164531994Z-21028-127551080cf6.json"
+}

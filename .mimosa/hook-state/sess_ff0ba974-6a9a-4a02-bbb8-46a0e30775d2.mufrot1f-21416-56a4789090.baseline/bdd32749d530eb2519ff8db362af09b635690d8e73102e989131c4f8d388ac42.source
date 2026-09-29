@@ -1,0 +1,42 @@
+import { defineStore } from 'pinia'
+
+import { adminLogin, adminLogout, fetchAdminMe } from '@/api/admin'
+
+// 登录态由服务端 HttpOnly 会话 cookie 承载，store 只缓存「当前是谁」这个事实。
+// 会话在服务端失效时，api 层会广播 api:unauthorized，这里收到就清空登录态，
+// 路由守卫随后把人引回登录页。
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    user: null,
+    ready: false,
+  }),
+  getters: {
+    isLoggedIn: (state) => !!state.user,
+  },
+  actions: {
+    /** 应用启动时探一次身份；探完才放行路由，避免闪登录页 */
+    async init() {
+      if (this.ready) return
+      window.addEventListener('api:unauthorized', () => {
+        this.user = null
+      })
+      try {
+        this.user = await fetchAdminMe()
+      } catch {
+        this.user = null
+      }
+      this.ready = true
+    },
+    async login(username, password) {
+      this.user = await adminLogin(username, password)
+    },
+    async logout() {
+      try {
+        await adminLogout()
+      } finally {
+        // 服务端登出失败（如网络抖动）也不拦着本地退出
+        this.user = null
+      }
+    },
+  },
+})

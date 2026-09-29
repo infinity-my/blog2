@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260924T143514081Z-6420-8e4d272b3718",
+  "runId": "20260924T143514081Z-6420-8e4d272b3718",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/stores/auth.js",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/admin.js",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/index.js",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/stores/auth.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/admin.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/index.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "91286cc870f7277747f6e8c4cdd37ef5d0a9cb1d1a885d594fed35590be07dca",
+  "rulesVersion": "unavailable",
+  "sessionHash": "5ae509e34e3d34144da53d1a5ab860ad2e8ea535c9a0db6d1a3b34e1b33473ac",
+  "reportRef": ".mimosa/reports/task-review-sess_9e953751-73a0-4c14-be87-466069b5d4fb-20260924T143514081Z-6420-8e4d272b3718.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "blog-ht/vite.config.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/main.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/stores/auth.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/router/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/api/admin.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-ht/src/api/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-hd/src/main/java/com/example/bloghd/config/SecurityConfig.java",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-24T14:35:14.464Z"
+}

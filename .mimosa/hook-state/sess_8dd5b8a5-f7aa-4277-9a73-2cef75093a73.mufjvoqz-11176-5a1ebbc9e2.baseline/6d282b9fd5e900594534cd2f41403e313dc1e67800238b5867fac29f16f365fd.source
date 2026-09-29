@@ -1,0 +1,20 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.MessageReply;
+
+/** 留言回复视图；author 表示博主回复，replyTo 为被 @ 的昵称 */
+public record ReplyView(
+        Long id,
+        String name,
+        Long userId,
+        Boolean author,
+        String time,
+        String content,
+        Integer likes,
+        String replyTo) {
+
+    public static ReplyView from(MessageReply r) {
+        return new ReplyView(r.getId(), r.getName(), r.getUserId(), Boolean.TRUE.equals(r.getIsAuthor()),
+                MessageView.stamp(r.getCreatedAt()), r.getContent(), r.getLikes(), r.getReplyTo());
+    }
+}

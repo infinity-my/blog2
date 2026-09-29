@@ -1,0 +1,80 @@
+// 纯前端模拟数据：随笔 = 未打磨的短想法，接入后端接口后用 API 返回替换即可
+// text 为段落数组，mood 为当时的心情/天气，location/tags/images 可选
+import essayRain from '../assets/essay-rain.jpg'
+import essayRain2 from '../assets/essay-rain2.jpg'
+import essayUmbrella from '../assets/essay-umbrella.jpg'
+import essayReading from '../assets/essay-reading.jpg'
+import essayDesk from '../assets/essay-desk.jpg'
+
+export const mockEssays = [
+  {
+    id: 1,
+    date: '2026-09-14',
+    mood: '平静',
+    location: '深圳 · 家',
+    text: ['把博客的分类页重构成了可展开的卡片，顺手把玻璃效果的参数又调了一遍。blur 20px、saturate 1.7，这套数值我大概已经形成肌肉记忆了。'],
+    tags: ['前端', '重构'],
+  },
+  {
+    id: 2,
+    date: '2026-09-08',
+    mood: '雨天',
+    location: '南山 · 便利店',
+    text: [
+      '下班路上暴雨，躲在便利店屋檐下等雨小。看雨水顺着玻璃门往下淌，忽然理解了为什么这么多设计系统爱用「玻璃」做隐喻——半透明、模糊、却真实地隔开了两个世界。',
+    ],
+    images: [essayRain, essayRain2, essayUmbrella],
+    tags: ['生活', '设计'],
+  },
+  {
+    id: 3,
+    date: '2026-08-30',
+    mood: '兴奋',
+    location: '深圳 · 书房',
+    text: ['事件循环那篇写完了。写之前以为自己懂了，写到「渲染时机」那一段才发现只是背下了结论。写作果然是最好的照妖镜。'],
+    tags: ['写作'],
+  },
+  {
+    id: 4,
+    date: '2026-08-21',
+    mood: '疲惫',
+    location: '深圳 · 公司',
+    text: [
+      '连续一周两点睡。今天把 AI 助手的自动补全关了一下午，效率反而更高——原来一半的等待时间里，我只是在等它猜我下一步要打什么。',
+      '工具用久了会反过来塑造使用者的节奏，这件事值得警惕。',
+    ],
+    tags: ['工具', '思考'],
+  },
+  {
+    id: 5,
+    date: '2026-08-10',
+    mood: '晴天',
+    location: '深圳 · 图书馆',
+    text: ['重读《设计心理学》第四章。诺曼说「出错的是设计，不是人」。想到自己写的那些没有确认的删除按钮，默默记进了下周的待办。'],
+    images: [essayReading],
+    tags: ['读书', '设计'],
+  },
+  {
+    id: 6,
+    date: '2026-07-26',
+    mood: '平静',
+    text: ['周末把终端配置文件精简到十行以内。删掉最后一个没用过的 alias 时，有种整理完衣柜的轻盈。'],
+    images: [essayDesk],
+    tags: ['效率'],
+  },
+  {
+    id: 7,
+    date: '2026-07-12',
+    mood: '犹豫',
+    location: '惠州 · 海边民宿',
+    text: ['要不要给博客加评论功能？想了很久，暂时作罢。写东西的热情不该建立在「有没有人回应」上，先把内容攒起来要紧。'],
+    tags: ['博客', '思考'],
+  },
+  {
+    id: 8,
+    date: '2026-06-28',
+    mood: '晴天',
+    text: ['半年过去，今年立的 flag 完成了一半：博客重启了，书读了两本，跑步荒废了。下半年至少把其中一项捡回来。'],
+    tags: ['随笔', '复盘'],
+  },
+]

@@ -1,0 +1,27 @@
+package com.example.bloghd.security;
+
+import org.springframework.http.HttpStatus;
+
+/**
+ * 带机器可读错误码的鉴权失败。
+ * 前端要区分「邮箱未注册」与「密码错误」，两者 HTTP 状态码相同，只能靠 code 分辨。
+ */
+public class AuthException extends RuntimeException {
+
+    private final HttpStatus status;
+    private final String code;
+
+    public AuthException(HttpStatus status, String code, String message) {
+        super(message);
+        this.status = status;
+        this.code = code;
+    }
+
+    public HttpStatus status() {
+        return status;
+    }
+
+    public String code() {
+        return code;
+    }
+}

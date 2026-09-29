@@ -1,0 +1,39 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import lombok.Data;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/** 相册照片，src 指向后端 /api/assets 素材 */
+@Data
+@TableName(value = "album_photo", autoResultMap = true)
+public class AlbumPhoto {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String src;
+
+    private Integer width;
+
+    private Integer height;
+
+    private String title;
+
+    private LocalDate shootDate;
+
+    private String location;
+
+    private String shot;
+
+    private String caption;
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> tags;
+}

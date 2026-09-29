@@ -1,0 +1,124 @@
+package com.example.bloghd.security;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class LoginRateLimiterTest {
+
+    private final LoginRateLimiter limiter = new LoginRateLimiter();
+
+    @Test
+    void blocksIdentityOnlyAfterFiveFailures() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY - 1; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+            assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                    .doesNotThrowAnyException();
+        }
+
+        limiter.recordFailure("user@example.com", "10.0.0.1");
+        assertThatThrownBy(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                .isInstanceOfSatisfying(AuthException.class, e -> {
+                    assertThat(e.status()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                    assertThat(e.code()).isEqualTo("TOO_MANY_ATTEMPTS");
+                    assertThat(e.getMessage()).contains("分钟");
+                });
+    }
+
+    @Test
+    void identityLockDoesNotAffectOtherIpsOrEmails() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+        }
+
+        // 换 IP 或换邮箱都不受牵连：攻击者锁不死别人的邮箱，也锁不死整个出口以外的人
+        assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.2"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> limiter.checkOrThrow("other@example.com", "10.0.0.1"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void resetClearsBothCounters() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+        }
+        limiter.reset("user@example.com", "10.0.0.1");
+
+        assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void ipWindowBlocksAcrossEmails() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IP; i++) {
+            // 每个邮箱只失败一次，不触发身份锁，靠 IP 维度单独累积
+            limiter.recordFailure("user" + i + "@example.com", "10.0.0.9");
+        }
+
+        assertThatThrownBy(() -> limiter.checkOrThrow("fresh@example.com", "10.0.0.9"))
+                .isInstanceOfSatisfying(AuthException.class,
+                        e -> assertThat(e.code()).isEqualTo("TOO_MANY_ATTEMPTS"));
+    }
+
+    @Test
+    void trackedKeysAreCappedByLruEviction() {
+        // 伪造 1 万个以上的「邮箱+IP」身份：映射触顶后按 LRU 淘汰，内存不再随攻击规模增长
+        for (int i = 0; i < LoginRateLimiter.MAX_TRACKED_KEYS + 50; i++) {
+            limiter.recordFailure("user" + i + "@example.com",
+                    "10.1." + (i / 250) + "." + (i % 250));
+        }
+
+        assertThat(limiter.trackedIdentities()).isLessThanOrEqualTo(LoginRateLimiter.MAX_TRACKED_KEYS);
+        assertThat(limiter.trackedIps()).isLessThanOrEqualTo(LoginRateLimiter.MAX_TRACKED_KEYS);
+    }
+
+    @Test
+    void oversizeIdentityIsTruncatedIntoBounds() {
+        // 500 字符的假邮箱超出列宽：截断成 260 字符以内的键，超长输入撑不大 map
+        String oversized = "a".repeat(500) + "@example.com";
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure(oversized, "10.2.3.4");
+        }
+
+        // 截断后同一假邮箱仍落在同一个键上，5 次照常触发身份锁
+        assertThatThrownBy(() -> limiter.checkOrThrow(oversized, "10.2.3.4"))
+                .isInstanceOf(AuthException.class);
+        assertThat(limiter.trackedIdentities()).isEqualTo(1);
+        assertThat(limiter.trackedIps()).isEqualTo(1);
+
+        // 两个超长但共享 260 字符前缀的邮箱落到同一个键：列宽之外的输入没有独立身份可言
+        String prefix = "b".repeat(300);
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure(prefix + "-aaa@example.com", "10.2.3.5");
+        }
+        assertThatThrownBy(() -> limiter.checkOrThrow(prefix + "-bbb@example.com", "10.2.3.5"))
+                .isInstanceOf(AuthException.class);
+    }
+
+    @Test
+    void boundedKeyCapsIdentityLength() {
+        assertThat(LoginRateLimiter.boundedKey("x".repeat(1_000)))
+                .hasSize(LoginRateLimiter.MAX_KEY_LENGTH);
+        assertThat(LoginRateLimiter.boundedKey("short@x|127.0.0.1"))
+                .isEqualTo("short@x|127.0.0.1");
+    }
+
+    @Test
+    void expiredWindowsAreSweptGlobally() {
+        limiter.recordFailure("stale@example.com", "10.3.0.1");
+        limiter.recordFailure("stale2@example.com", "10.3.0.2");
+
+        // checkOrThrow 每次调用全表清扫：窗口滑走后没人再访问的键也会被回收
+        // （15 分钟窗口 + 1 分钟余量，直接驱动时钟，不必真等）
+        limiter.sweepExpired(System.currentTimeMillis() + 16 * 60 * 1000L);
+
+        assertThat(limiter.trackedIdentities()).isZero();
+        assertThat(limiter.trackedIps()).isZero();
+        assertThatCode(() -> limiter.checkOrThrow("stale@example.com", "10.3.0.1"))
+                .doesNotThrowAnyException();
+    }
+}

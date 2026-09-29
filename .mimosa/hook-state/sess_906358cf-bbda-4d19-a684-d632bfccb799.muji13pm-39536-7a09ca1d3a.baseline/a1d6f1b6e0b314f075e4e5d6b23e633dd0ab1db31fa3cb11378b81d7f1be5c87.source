@@ -1,0 +1,29 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 后台管理员账号。初始账号由配置里的 blog.admin.* 在启动时种入（见 AdminAccountSeeder） */
+@Data
+@TableName("admin_account")
+public class AdminAccount {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String username;
+
+    private String displayName;
+
+    /** BCrypt 哈希，明文口令不落库 */
+    private String passwordHash;
+
+    /** 停用后不能再登录；已发放的旧会话不受影响（会话身份在登录时固化） */
+    private Boolean enabled;
+
+    private LocalDateTime createdAt;
+}

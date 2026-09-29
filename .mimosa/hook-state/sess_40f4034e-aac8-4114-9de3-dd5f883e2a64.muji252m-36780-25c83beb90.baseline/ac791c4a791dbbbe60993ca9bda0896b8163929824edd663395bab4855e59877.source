@@ -1,0 +1,97 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+const SITE_TITLE = '个人博客'
+
+// 路由结构：component 有意留空，页面组件就位后在对应路由补上即可
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/',
+      name: 'home',
+      component: () => import('../views/HomeView.vue'),
+      meta: { title: '首页' },
+    },
+    {
+      path: '/post/:id',
+      name: 'post-detail',
+      component: () => import('../views/PostDetailView.vue'),
+      meta: { title: '文章详情' },
+    },
+    {
+      path: '/archives',
+      name: 'archives',
+      component: () => import('../views/ArchivesView.vue'),
+      meta: { title: '归档' },
+    },
+    {
+      path: '/categories',
+      name: 'categories',
+      component: () => import('../views/CategoriesView.vue'),
+      meta: { title: '博文' },
+    },
+    {
+      path: '/essays',
+      name: 'essays',
+      component: () => import('../views/EssaysView.vue'),
+      meta: { title: '随笔' },
+    },
+    {
+      path: '/projects',
+      name: 'projects',
+      component: () => import('../views/ProjectsView.vue'),
+      meta: { title: '项目' },
+    },
+    {
+      path: '/projects/:slug',
+      name: 'project-detail',
+      component: () => import('../views/ProjectDetailView.vue'),
+      meta: { title: '项目详情' },
+    },
+    {
+      path: '/album',
+      name: 'album',
+      component: () => import('../views/AlbumView.vue'),
+      meta: { title: '相册' },
+    },
+    {
+      path: '/messages',
+      name: 'messages',
+      component: () => import('../views/MessagesView.vue'),
+      meta: { title: '留言板' },
+    },
+    {
+      path: '/about',
+      name: 'about',
+      component: () => import('../views/AboutView.vue'),
+      meta: { title: '关于' },
+    },
+    {
+      // 简历入口挂在关于页，不放进导航；口令门在页面内，登录与否都要验证
+      path: '/resume',
+      name: 'resume',
+      component: () => import('../views/ResumeView.vue'),
+      meta: { title: '简历' },
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
+      meta: { title: '登录' },
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/',
+    },
+  ],
+  scrollBehavior() {
+    return { top: 0 }
+  },
+})
+
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · ${SITE_TITLE}` : SITE_TITLE
+  // 行为埋点只记打开文档/项目与评论留言点赞，页面导航（点 tab 切页）不上报
+})
+
+export default router

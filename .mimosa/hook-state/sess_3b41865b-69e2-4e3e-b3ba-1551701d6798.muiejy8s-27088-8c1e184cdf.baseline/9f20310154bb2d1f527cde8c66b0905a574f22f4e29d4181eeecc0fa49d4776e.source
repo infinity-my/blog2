@@ -1,0 +1,49 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/**
+ * 一条访客行为：只记有意义的行为（打开文档/项目、评论、留言、点赞），不记页面导航。
+ * visitorKey 是登录用户（u:{userId}）或匿名 cookie 身份（v:{uuid}）。
+ */
+@Data
+@TableName("visit_log")
+public class VisitLog {
+
+    /** post / project / comment / message / like */
+    public static final String POST = "post";
+    public static final String PROJECT = "project";
+    public static final String COMMENT = "comment";
+    public static final String MESSAGE = "message";
+    public static final String LIKE = "like";
+
+    /** 全部合法行为类型，上报校验与筛选共用 */
+    public static final java.util.Set<String> ACTIONS =
+            java.util.Set.of(POST, PROJECT, COMMENT, MESSAGE, LIKE);
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String visitorKey;
+
+    /** 登录用户的 id，匿名上报为 null；冗余于 visitorKey，聚合免解析 */
+    private Long userId;
+
+    private String action;
+
+    /** 行为发生的页面路径（含查询串），如 /post/1、/messages */
+    private String path;
+
+    /** 行为对象：文档标题、项目名、留言板……可空 */
+    private String title;
+
+    /** 内容摘要：评论文本、留言文本、点赞对象等，浏览类为 null */
+    private String detail;
+
+    private LocalDateTime createdAt;
+}

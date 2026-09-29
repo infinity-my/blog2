@@ -1,0 +1,28 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 留言板主楼 */
+@Data
+@TableName("message")
+public class Message {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String name;
+
+    private String content;
+
+    private Integer likes;
+
+    private LocalDateTime createdAt;
+
+    /** 登录用户 id，未登录为 null */
+    private Long userId;
+}

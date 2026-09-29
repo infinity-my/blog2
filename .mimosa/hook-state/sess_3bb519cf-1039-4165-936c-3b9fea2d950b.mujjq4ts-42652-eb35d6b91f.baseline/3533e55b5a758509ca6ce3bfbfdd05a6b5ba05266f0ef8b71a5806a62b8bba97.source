@@ -1,0 +1,17 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.Comment;
+
+/** 评论视图：time 为 yyyy-MM-dd HH:mm 字符串，与留言板同一套展示约定 */
+public record CommentView(
+        Long id,
+        Long userId,
+        String name,
+        String time,
+        String content) {
+
+    public static CommentView from(Comment c) {
+        return new CommentView(c.getId(), c.getUserId(), c.getName(),
+                MessageView.stamp(c.getCreatedAt()), c.getContent());
+    }
+}

@@ -1,0 +1,156 @@
+// 站点数据接口：开发环境由 vite 代理转发到 blog-hd 后端（见 vite.config.js 的 server.proxy）
+export const BASE = '/api'
+
+async function request(path, params) {
+  const qs = params && Object.keys(params).length ? `?${new URLSearchParams(params)}` : ''
+  const res = await fetch(`${BASE}${path}${qs}`, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    const err = new Error(`请求失败：GET ${path} → ${res.status}`)
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+async function post(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers:
+      body === undefined
+        ? { Accept: 'application/json' }
+        : { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = new Error(`请求失败：POST ${path} → ${res.status}`)
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+/**
+ * 文章元数据列表（不含正文）
+ * @param {{ category?: string, order?: 'asc' | 'desc' }} [options]
+ * @returns {Promise<Array<{id:number,title:string,excerpt:string,date:string,category:string,tags:string[],views:number,comments:number}>>}
+ */
+export function fetchPosts(options = {}) {
+  const params = {}
+  if (options.category) params.category = options.category
+  if (options.order) params.order = options.order
+  return request('/posts', params)
+}
+
+/**
+ * 文章详情（含正文结构化块）；id 不存在时抛出 status=404 的错误
+ * @param {number|string} id
+ * @returns {Promise<{id:number,title:string,excerpt:string,date:string,category:string,tags:string[],views:number,comments:number,content:Array<{type:string}>}>}
+ */
+export function fetchPost(id) {
+  return request(`/posts/${id}`)
+}
+
+/**
+ * 近 N 天的写作动态计数（热力图）
+ * @param {number} [days=365]
+ * @returns {Promise<Record<string, number>>} 形如 { '2026-09-12': 4 }，缺省日期为 0
+ */
+export function fetchHeatmap(days = 365) {
+  return request('/heatmap', { days })
+}
+
+/**
+ * 站点统计（文章数/分类数/累计访问量，均来自数据库）
+ * @returns {Promise<{posts:number,categories:number,visits:number}>}
+ */
+export function fetchStats() {
+  return request('/stats')
+}
+
+/**
+ * 站点配置（首页背景图/视频等）；后端未配置时字段为 null，调用方需回落本地素材
+ * @returns {Promise<{heroImage:string|null,heroVideo:string|null}>}
+ */
+export function fetchSite() {
+  return request('/site')
+}
+
+/**
+ * 进站访问上报（当日 +1），返回最新累计统计
+ * @returns {Promise<{posts:number,categories:number,visits:number}>}
+ */
+export function recordVisit() {
+  return post('/stats/visit')
+}
+
+/**
+ * 留言列表（最新在前），每条带 replies 数组
+ * @returns {Promise<Array<{id:number,name:string,userId:number|null,time:string,content:string,likes:number,replies:Array}>>}
+ */
+export function fetchMessages() {
+  return request('/messages')
+}
+
+/**
+ * 发布留言
+ * @param {{ name?: string, content: string, userId?: number|null }} payload
+ * @returns {Promise<{id:number,name:string,userId:number|null,time:string,content:string,likes:number,replies:Array}>}
+ */
+export function postMessage(payload) {
+  return post('/messages', payload)
+}
+
+/**
+ * 点赞/取消点赞留言
+ * @param {number|string} id
+ * @param {boolean} liked true 点赞，false 取消
+ * @returns {Promise<{id:number,likes:number}>} 服务端最新计数
+ */
+export function likeMessage(id, liked) {
+  return post(`/messages/${id}/like`, { liked })
+}
+
+/**
+ * 回复某条留言
+ * @param {number|string} messageId
+ * @param {{ name?: string, content: string, replyTo?: string|null, userId?: number|null }} payload
+ * @returns {Promise<{id:number,name:string,userId:number|null,author:boolean,time:string,content:string,likes:number,replyTo:string|null}>}
+ */
+export function postReply(messageId, payload) {
+  return post(`/messages/${messageId}/replies`, payload)
+}
+
+/**
+ * 点赞/取消点赞回复
+ * @param {number|string} id
+ * @param {boolean} liked
+ * @returns {Promise<{id:number,likes:number}>}
+ */
+export function likeReply(id, liked) {
+  return post(`/messages/replies/${id}/like`, { liked })
+}
+
+/**
+ * 相册照片列表（拍摄时间倒序）
+ * @returns {Promise<Array<{id:number,src:string,width:number,height:number,title:string,date:string,location:string,shot:string,caption:string,tags:string[]}>>}
+ */
+export function fetchPhotos() {
+  return request('/album/photos')
+}
+
+/**
+ * 随笔列表（时间倒序）
+ * @returns {Promise<Array<{id:number,date:string,mood:string,location:string,text:string[],images:string[],tags:string[]}>>}
+ */
+export function fetchEssays() {
+  return request('/essays')
+}
+
+/**
+ * 简历解锁：口令由服务端校验，和登录态无关，登录与否都要过这一关
+ * @param {string} password
+ * @returns {Promise<{unlocked:boolean}>} 口令错误时抛出 status=401 的错误
+ */
+export function unlockResume(password) {
+  return post('/resume/unlock', { password })
+}

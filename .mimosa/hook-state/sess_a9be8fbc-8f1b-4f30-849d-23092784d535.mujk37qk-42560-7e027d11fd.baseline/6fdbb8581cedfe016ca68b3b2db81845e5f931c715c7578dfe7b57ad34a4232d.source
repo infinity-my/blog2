@@ -1,0 +1,96 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.CommentView;
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.entity.Comment;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.security.AuthPrincipal;
+import com.example.bloghd.security.CurrentUser;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * 文章评论：读公开，写要登录。与留言板的匿名署名不同，评论区收紧到注册用户，
+ * 省一层匿名垃圾内容的清理成本；发言人身份由服务端裁决，请求体不接受姓名。
+ */
+@RestController
+@RequestMapping("/api/posts/{articleId}/comments")
+public class CommentController {
+
+    private static final int MAX_CONTENT = 200;
+
+    private final CommentMapper commentMapper;
+    private final ArticleMapper articleMapper;
+    private final CurrentUser currentUser;
+
+    public CommentController(CommentMapper commentMapper,
+                             ArticleMapper articleMapper,
+                             CurrentUser currentUser) {
+        this.commentMapper = commentMapper;
+        this.articleMapper = articleMapper;
+        this.currentUser = currentUser;
+    }
+
+    /** 评论列表，时间正序（先来的在前，与留言板的主楼倒序互补：文章是「读」的场景） */
+    @GetMapping
+    public List<CommentView> list(@PathVariable Long articleId) {
+        requireArticle(articleId);
+        return commentMapper.selectList(new LambdaQueryWrapper<Comment>()
+                        .eq(Comment::getArticleId, articleId)
+                        .orderByAsc(Comment::getCreatedAt, Comment::getId))
+                .stream()
+                .map(CommentView::from)
+                .toList();
+    }
+
+    @PostMapping
+    public ResponseEntity<CommentView> create(@PathVariable Long articleId,
+                                              @RequestBody CommentForm form) {
+        AuthPrincipal user = currentUser.orNull();
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录后才能评论");
+        }
+        requireArticle(articleId);
+
+        Comment comment = new Comment();
+        comment.setArticleId(articleId);
+        comment.setUserId(user.id());
+        comment.setName(user.name());
+        comment.setContent(requiredContent(form.content()));
+        comment.setCreatedAt(LocalDateTime.now().withNano(0));
+        commentMapper.insert(comment);
+        return ResponseEntity.status(HttpStatus.CREATED).body(CommentView.from(comment));
+    }
+
+    private void requireArticle(Long articleId) {
+        if (articleMapper.selectById(articleId) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文章不存在");
+        }
+    }
+
+    private static String requiredContent(String raw) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "评论内容不能为空");
+        }
+        if (text.length() > MAX_CONTENT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "评论不能超过 " + MAX_CONTENT + " 字");
+        }
+        return text;
+    }
+
+    public record CommentForm(String content) {
+    }
+}

@@ -1,0 +1,81 @@
+package com.example.bloghd.support;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.AlbumPhoto;
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.entity.Essay;
+import com.example.bloghd.entity.Project;
+import com.example.bloghd.entity.SiteConfig;
+import com.example.bloghd.mapper.AlbumPhotoMapper;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.EssayMapper;
+import com.example.bloghd.mapper.ProjectMapper;
+import com.example.bloghd.mapper.SiteConfigMapper;
+import org.springframework.stereotype.Component;
+
+/**
+ * 判断一个 /api/assets/ 素材是否仍被内容引用。可能嵌素材的地方：
+ * 相册登记（同素材可登记多张）、随笔配图（JSON 数组）、页面背景（值即 URL）、
+ * 项目的 README 与仓库/预览链接、文章 markdown 正文。
+ * 评论/留言是纯文本展示，不算引用。删除照片登记时据此清理磁盘文件：
+ * 还有引用的一律保留，宁可多留不误删。
+ */
+@Component
+public class AssetReferenceChecker {
+
+    private final AlbumPhotoMapper albumPhotoMapper;
+    private final EssayMapper essayMapper;
+    private final SiteConfigMapper siteConfigMapper;
+    private final ProjectMapper projectMapper;
+    private final ArticleMapper articleMapper;
+
+    public AssetReferenceChecker(AlbumPhotoMapper albumPhotoMapper,
+                                 EssayMapper essayMapper,
+                                 SiteConfigMapper siteConfigMapper,
+                                 ProjectMapper projectMapper,
+                                 ArticleMapper articleMapper) {
+        this.albumPhotoMapper = albumPhotoMapper;
+        this.essayMapper = essayMapper;
+        this.siteConfigMapper = siteConfigMapper;
+        this.projectMapper = projectMapper;
+        this.articleMapper = articleMapper;
+    }
+
+    public boolean isReferenced(String url) {
+        // src 与背景配置的值就是 URL 本身，精确匹配
+        if (albumPhotoMapper.selectCount(new LambdaQueryWrapper<AlbumPhoto>()
+                .eq(AlbumPhoto::getSrc, url)) > 0) {
+            return true;
+        }
+        if (siteConfigMapper.selectCount(new LambdaQueryWrapper<SiteConfig>()
+                .eq(SiteConfig::getConfigValue, url)) > 0) {
+            return true;
+        }
+        // 文本类内容里 URL 是子串：拉回内存匹配。不用 LIKE 有两个原因——
+        // 它在 H2 测试库上不可靠（同 SQL 同参数经 JDBC 命中、经 MyBatis 落空，根因未明）；
+        // 内存 contains 也更精确，URL 前缀相同的素材不会互相误伤。
+        // 引用检查只跑在低频的删除路径上，随笔/项目/文章的量级完全可以整表取回
+        for (Essay essay : essayMapper.selectList(new LambdaQueryWrapper<Essay>()
+                .select(Essay::getImages))) {
+            if (essay.getImages() != null && essay.getImages().contains(url)) {
+                return true;
+            }
+        }
+        for (Project project : projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                .select(Project::getRepo, Project::getDemo, Project::getReadme))) {
+            if (url.equals(project.getRepo()) || url.equals(project.getDemo())) {
+                return true;
+            }
+            if (project.getReadme() != null && project.getReadme().contains(url)) {
+                return true;
+            }
+        }
+        for (Article article : articleMapper.selectList(new LambdaQueryWrapper<Article>()
+                .select(Article::getContent))) {
+            if (article.getContent() != null && article.getContent().contains(url)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}

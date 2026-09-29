@@ -1,0 +1,92 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.ArticleCommentCount;
+import com.example.bloghd.dto.PostDetail;
+import com.example.bloghd.dto.PostSummary;
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.entity.Comment;
+import com.example.bloghd.entity.WritingActivity;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.mapper.WritingActivityMapper;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api")
+public class PostController {
+
+    private final ArticleMapper articleMapper;
+    private final WritingActivityMapper writingActivityMapper;
+    private final CommentMapper commentMapper;
+
+    public PostController(ArticleMapper articleMapper,
+                          WritingActivityMapper writingActivityMapper,
+                          CommentMapper commentMapper) {
+        this.articleMapper = articleMapper;
+        this.writingActivityMapper = writingActivityMapper;
+        this.commentMapper = commentMapper;
+    }
+
+    @GetMapping("/posts")
+    public List<PostSummary> posts(@RequestParam(required = false) String category,
+                                   @RequestParam(defaultValue = "desc") String order) {
+        boolean asc = "asc".equalsIgnoreCase(order);
+        LambdaQueryWrapper<Article> qw = new LambdaQueryWrapper<Article>()
+                .eq(StringUtils.hasText(category), Article::getCategory, category)
+                .orderBy(true, asc, Article::getPublishDate)
+                .orderBy(true, asc, Article::getId);
+        List<Article> articles = articleMapper.selectList(qw);
+        // 评论数实时统计：GROUP BY 一次聚合，读的成本只随有评论的文章数走，
+        // 不再把整张评论表拉回内存数行
+        Map<Long, Integer> counts = new HashMap<>();
+        for (ArticleCommentCount row : commentMapper.countByArticle()) {
+            counts.put(row.getArticleId(), row.getCnt().intValue());
+        }
+        return articles.stream()
+                .map(a -> PostSummary.from(a, counts.getOrDefault(a.getId(), 0)))
+                .toList();
+    }
+
+    @GetMapping("/posts/{id}")
+    public ResponseEntity<PostDetail> post(@PathVariable Long id) {
+        Article article = articleMapper.selectById(id);
+        if (article == null) return ResponseEntity.notFound().build();
+        Long comments = commentMapper.selectCount(
+                new LambdaQueryWrapper<Comment>().eq(Comment::getArticleId, id));
+        return ResponseEntity.ok(PostDetail.from(article, comments.intValue()));
+    }
+
+    @GetMapping("/heatmap")
+    public Map<String, Integer> heatmap(@RequestParam(defaultValue = "365") int days) {
+        int window = Math.max(1, Math.min(731, days));
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusDays(window - 1L);
+
+        Map<LocalDate, Integer> counts = writingActivityMapper
+                .selectList(new LambdaQueryWrapper<WritingActivity>()
+                        .ge(WritingActivity::getStatDate, start)
+                        .le(WritingActivity::getStatDate, today))
+                .stream()
+                .collect(Collectors.toMap(WritingActivity::getStatDate, WritingActivity::getActivityCount));
+
+        Map<String, Integer> result = new LinkedHashMap<>();
+        for (LocalDate d = start; !d.isAfter(today); d = d.plusDays(1)) {
+            result.put(d.toString(), counts.getOrDefault(d, 0));
+        }
+        return result;
+    }
+}

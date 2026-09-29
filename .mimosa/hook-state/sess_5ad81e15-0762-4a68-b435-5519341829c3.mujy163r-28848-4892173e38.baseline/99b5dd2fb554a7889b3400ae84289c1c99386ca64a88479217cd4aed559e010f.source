@@ -1,0 +1,255 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.bloghd.dto.MessageView;
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.entity.LikeRecord;
+import com.example.bloghd.entity.VisitLog;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.LikeRecordMapper;
+import com.example.bloghd.mapper.VisitLogMapper;
+import com.example.bloghd.security.AuthException;
+import com.example.bloghd.support.TelemetryRetention;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * 访客侧的后台读接口：匿名游客列表 + 任意访客（含注册用户）的浏览轨迹。
+ * 游客身份与点赞同一套（v:{uuid} cookie），轨迹来自前台路由切换的上报（visit_log）；
+ * 在本功能上线前就点过赞的老游客没有轨迹，也列出来，方便看全点赞人群。
+ * 聚合一律框在遥测留存窗口内（见 TelemetryRetention）并给分组数封顶，
+ * 读的规模不随表无界增长。
+ */
+@RestController
+@RequestMapping("/api/admin")
+public class AdminVisitorController {
+
+    private static final int TRAIL_LIMIT = 500;
+    private static final int ACTIVITY_LIMIT = 500;
+    /** GROUP BY 分组数的上限：正常远达不到，只为兜住恶意刷 key 撑大聚合 */
+    private static final int AGGREGATION_LIMIT = 10_000;
+
+    private final VisitLogMapper visitLogMapper;
+    private final LikeRecordMapper likeRecordMapper;
+    private final AppUserMapper appUserMapper;
+    private final TelemetryRetention retention;
+
+    public AdminVisitorController(VisitLogMapper visitLogMapper, LikeRecordMapper likeRecordMapper,
+                                  AppUserMapper appUserMapper, TelemetryRetention retention) {
+        this.visitLogMapper = visitLogMapper;
+        this.likeRecordMapper = likeRecordMapper;
+        this.appUserMapper = appUserMapper;
+        this.retention = retention;
+    }
+
+    /** 匿名游客列表，按最近访问倒序，从没浏览过的排最后；只统计留存窗口内的行为 */
+    @GetMapping("/visitors")
+    public List<GuestView> guests() {
+        LocalDateTime since = retention.cutoff();
+        Map<String, LocalDateTime> firsts = new HashMap<>();
+        Map<String, LocalDateTime> lasts = new HashMap<>();
+        Map<String, Long> visitCounts = new HashMap<>();
+        for (Map<String, Object> row : visitLogMapper.selectMaps(new QueryWrapper<VisitLog>()
+                .select("visitor_key", "count(*) as cnt",
+                        "min(created_at) as first_at", "max(created_at) as last_at")
+                .ge("created_at", since)
+                .likeRight("visitor_key", "v:")
+                .groupBy("visitor_key")
+                .last("LIMIT " + AGGREGATION_LIMIT))) {
+            String key = null;
+            Long count = 0L;
+            Object firstAt = null;
+            Object lastAt = null;
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                String column = entry.getKey().toLowerCase(Locale.ROOT);
+                if (entry.getValue() == null) continue;
+                switch (column) {
+                    case "visitor_key" -> key = entry.getValue().toString();
+                    case "cnt" -> count = ((Number) entry.getValue()).longValue();
+                    case "first_at" -> firstAt = entry.getValue();
+                    case "last_at" -> lastAt = entry.getValue();
+                }
+            }
+            if (key != null) {
+                visitCounts.put(key, count);
+                firsts.put(key, asTime(firstAt));
+                lasts.put(key, asTime(lastAt));
+            }
+        }
+
+        Map<String, Long> likeCounts = new HashMap<>();
+        for (Map<String, Object> row : likeRecordMapper.selectMaps(new QueryWrapper<LikeRecord>()
+                .select("visitor_key", "count(*) as cnt")
+                .ge("created_at", since)
+                .likeRight("visitor_key", "v:")
+                .groupBy("visitor_key")
+                .last("LIMIT " + AGGREGATION_LIMIT))) {
+            String key = columnValue(row, "visitor_key");
+            Number count = columnNumber(row, "cnt");
+            if (key != null && count != null) {
+                likeCounts.merge(key, count.longValue(), Long::sum);
+            }
+        }
+
+        List<String> keys = new ArrayList<>(visitCounts.keySet());
+        likeCounts.keySet().forEach(k -> {
+            if (!keys.contains(k)) keys.add(k);
+        });
+
+        List<GuestView> guests = new ArrayList<>();
+        for (String key : keys) {
+            guests.add(new GuestView(key,
+                    visitCounts.getOrDefault(key, 0L),
+                    likeCounts.getOrDefault(key, 0L),
+                    stamp(firsts.get(key)),
+                    stamp(lasts.get(key))));
+        }
+        guests.sort(Comparator.comparing(GuestView::lastVisit,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return guests;
+    }
+
+    /**
+     * 行为流水（最新在前）：全站访客打开文档/项目、评论、留言、点赞的记录。
+     * action 为空返回全部类型；summary 是留存窗口内的全量分型计数，与筛选无关。
+     * 注册用户回显昵称，游客回显 visitorKey（前端截短展示）。
+     */
+    @GetMapping("/activities")
+    public Activities activities(@RequestParam(required = false) String action) {
+        String filter = action == null ? "" : action.trim().toLowerCase();
+        if (!filter.isEmpty() && !VisitLog.ACTIONS.contains(filter)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "BAD_ACTION", "行为类型不合法");
+        }
+
+        Map<String, Long> summary = new HashMap<>();
+        for (Map<String, Object> row : visitLogMapper.selectMaps(new QueryWrapper<VisitLog>()
+                .select("action", "count(*) as cnt")
+                .ge("created_at", retention.cutoff())
+                .groupBy("action"))) {
+            String key = columnValue(row, "action");
+            Number count = columnNumber(row, "cnt");
+            if (key != null && count != null) {
+                summary.put(key, count.longValue());
+            }
+        }
+
+        Map<Long, String> userNames = new HashMap<>();
+        for (AppUser user : appUserMapper.selectList(new LambdaQueryWrapper<AppUser>()
+                .select(AppUser::getId, AppUser::getName))) {
+            userNames.put(user.getId(), user.getName());
+        }
+
+        LambdaQueryWrapper<VisitLog> qw = new LambdaQueryWrapper<VisitLog>()
+                .orderByDesc(VisitLog::getCreatedAt, VisitLog::getId)
+                .last("LIMIT " + ACTIVITY_LIMIT);
+        if (!filter.isEmpty()) {
+            qw.eq(VisitLog::getAction, filter);
+        }
+        List<ActivityView> items = visitLogMapper.selectList(qw).stream()
+                .map(v -> new ActivityView(
+                        v.getAction(),
+                        v.getPath(),
+                        v.getTitle(),
+                        v.getDetail(),
+                        MessageView.stamp(v.getCreatedAt()),
+                        v.getVisitorKey(),
+                        v.getUserId() == null ? null : userNames.get(v.getUserId())))
+                .toList();
+        return new Activities(summary, items);
+    }
+
+    /** 某位访客的行为记录，最新在前；key 形如 u:1（注册用户）或 v:{uuid}（游客） */
+    @GetMapping("/visits")
+    public List<VisitView> visits(@RequestParam String key) {
+        String visitorKey = key == null ? "" : key.trim();
+        if (visitorKey.length() > 80
+                || !(visitorKey.startsWith("u:") || visitorKey.startsWith("v:"))) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "BAD_KEY", "访客标识不合法");
+        }
+        return visitLogMapper.selectList(new LambdaQueryWrapper<VisitLog>()
+                        .eq(VisitLog::getVisitorKey, visitorKey)
+                        .orderByDesc(VisitLog::getCreatedAt, VisitLog::getId)
+                        .last("LIMIT " + TRAIL_LIMIT))
+                .stream()
+                .map(v -> new VisitView(v.getAction(), v.getPath(), v.getTitle(), v.getDetail(),
+                        MessageView.stamp(v.getCreatedAt())))
+                .toList();
+    }
+
+    private static String columnValue(Map<String, Object> row, String column) {
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (entry.getKey().toLowerCase(Locale.ROOT).equals(column)
+                    && entry.getValue() != null) {
+                return entry.getValue().toString();
+            }
+        }
+        return null;
+    }
+
+    private static Number columnNumber(Map<String, Object> row, String column) {
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (entry.getKey().toLowerCase(Locale.ROOT).equals(column)
+                    && entry.getValue() instanceof Number number) {
+                return number;
+            }
+        }
+        return null;
+    }
+
+    /** selectMaps 里的时间列：驱动差异可能给 LocalDateTime 或 Timestamp，归一成前者 */
+    private static LocalDateTime asTime(Object value) {
+        if (value instanceof LocalDateTime time) return time;
+        if (value instanceof Timestamp ts) return ts.toLocalDateTime();
+        return null;
+    }
+
+    private static String stamp(LocalDateTime time) {
+        return time == null ? null : MessageView.stamp(time);
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record GuestView(String visitorKey,
+                            Long visitCount,
+                            Long likeCount,
+                            String firstVisit,
+                            String lastVisit) {
+    }
+
+    public record VisitView(String action, String path, String title, String detail, String time) {
+    }
+
+    public record ActivityView(String action,
+                               String path,
+                               String title,
+                               String detail,
+                               String time,
+                               String visitorKey,
+                               String userName) {
+    }
+
+    /** summary 是 action -> 全量计数；items 受 action 筛选影响 */
+    public record Activities(Map<String, Long> summary, List<ActivityView> items) {
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

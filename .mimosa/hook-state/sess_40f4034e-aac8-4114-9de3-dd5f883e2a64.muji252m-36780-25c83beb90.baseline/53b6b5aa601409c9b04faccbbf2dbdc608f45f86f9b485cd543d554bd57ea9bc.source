@@ -1,0 +1,26 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 一次点赞：visitorKey 是登录用户（u:{userId}）或匿名 cookie 身份（v:{uuid}） */
+@Data
+@TableName("like_record")
+public class LikeRecord {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    /** 点赞目标类型：message / reply（后续新目标在此扩展） */
+    private String targetType;
+
+    private Long targetId;
+
+    private String visitorKey;
+
+    private LocalDateTime createdAt;
+}

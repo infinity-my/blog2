@@ -1,0 +1,297 @@
+import { BASE, CSRF_HEADER, csrfToken, del, post, put, request } from './index'
+
+// 后台专用接口。列表/详情复用公开的 /api/posts 与 /api/messages（本就公开），
+// 这里只封装「写」的那一半；失败抛出带 code / message 的 Error，message 可原样展示。
+/**
+ * 管理员登录；用户名或密码不对抛 code=BAD_CREDENTIALS，失败过多抛 code=TOO_MANY_ATTEMPTS
+ * @returns {Promise<{name:string}>}
+ */
+export function adminLogin(username, password) {
+  return post('/admin/login', { username, password })
+}
+
+/**
+ * 当前管理员身份；会话失效时抛 status=401
+ * @returns {Promise<{name:string}>}
+ */
+export function fetchAdminMe() {
+  return request('/admin/me')
+}
+
+export function adminLogout() {
+  return post('/admin/logout')
+}
+
+/**
+ * 文章完整表单：正文是结构化块数组（p/h2/quote/code/ul），由后端序列化落库
+ * @returns {Promise<{id:number,title:string}>} 新建返回 201 与新 id
+ */
+export function createPost(payload) {
+  return post('/admin/posts', payload)
+}
+
+export function updatePost(id, payload) {
+  return put(`/admin/posts/${id}`, payload)
+}
+
+/** 删除文章；id 不存在时抛 status=404 */
+export function deletePost(id) {
+  return del(`/admin/posts/${id}`)
+}
+
+/** 删除留言主楼，回复一并删除 */
+export function deleteMessage(id) {
+  return del(`/admin/messages/${id}`)
+}
+
+/** 只删一条回复，主楼保留 */
+export function deleteReply(id) {
+  return del(`/admin/messages/replies/${id}`)
+}
+
+/**
+ * 后台评论列表（最新在前），带文章标题便于定位
+ * @returns {Promise<Array<{id:number,articleId:number,articleTitle:string,userId:number|null,name:string,time:string,content:string}>>}
+ */
+export function fetchAdminComments() {
+  return request('/admin/comments')
+}
+
+/** 删除单条评论；id 不存在时抛 status=404 */
+export function deleteComment(id) {
+  return del(`/admin/comments/${id}`)
+}
+
+/**
+ * 以博主身份回复留言（回复带「博主」徽标）；主楼不存在抛 status=404
+ * @param {number|string} messageId
+ * @param {{ content: string, replyTo?: string|null }} payload
+ * @returns {Promise<{id:number,name:string,author:boolean,time:string,content:string,replyTo:string|null}>}
+ */
+export function adminReply(messageId, payload) {
+  return post(`/admin/messages/${messageId}/replies`, payload)
+}
+
+/**
+ * 上传素材，返回 { url }（/api/assets/** 路径）；图片与背景视频共用，
+ * 大文件走 XHR 以拿到上传进度（onProgress 收到 0-100 的百分比）。
+ * multipart 与 JSON 封装不同源：这里直接用 FormData，CSRF 头沿用同一套 cookie 约定。
+ * @param {File} file
+ * @param {string} [folder] 素材子目录（album / essay / bg / misc）
+ * @param {{ onProgress?: (percent:number) => void }} [options]
+ * @returns {Promise<{url:string}>}
+ */
+export async function uploadAsset(file, folder = 'misc', { onProgress } = {}) {
+  const token = await csrfToken()
+  return new Promise((resolve, reject) => {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('folder', folder)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${BASE}/admin/upload`)
+    xhr.responseType = 'json'
+    xhr.setRequestHeader('Accept', 'application/json')
+    xhr.setRequestHeader(CSRF_HEADER, token)
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response ?? {})
+        return
+      }
+      if (xhr.status === 401) {
+        window.dispatchEvent(new CustomEvent('api:unauthorized'))
+      }
+      // 与 toError 同一套约定：404/401 可能没有响应体
+      const data = xhr.response ?? {}
+      const error = new Error(data.message || '上传失败，请稍后再试。')
+      error.status = xhr.status
+      error.code = data.code || 'UNKNOWN_ERROR'
+      reject(error)
+    }
+    xhr.onerror = () => {
+      const error = new Error('网络连接失败，请稍后再试。')
+      error.status = 0
+      error.code = 'NETWORK_ERROR'
+      reject(error)
+    }
+    xhr.send(body)
+  })
+}
+
+// ---------- 相册 / 随笔 / 站点配置 ----------
+
+/** 新建照片；src 必须是 /api/assets/** 下的上传素材 */
+export function createPhoto(payload) {
+  return post('/admin/photos', payload)
+}
+
+export function updatePhoto(id, payload) {
+  return put(`/admin/photos/${id}`, payload)
+}
+
+export function deletePhoto(id) {
+  return del(`/admin/photos/${id}`)
+}
+
+/** 新建随笔；text 是段落数组 */
+export function createEssay(payload) {
+  return post('/admin/essays', payload)
+}
+
+export function updateEssay(id, payload) {
+  return put(`/admin/essays/${id}`, payload)
+}
+
+export function deleteEssay(id) {
+  return del(`/admin/essays/${id}`)
+}
+
+/**
+ * 站点配置：payload 为 { backgrounds: { <page>: { image, video } } }，
+ * 字段空串表示清掉该配置（前台回落本地素材），null 表示保持不变
+ */
+export function updateSite(payload) {
+  return put('/admin/site', payload)
+}
+
+// ---------- 标签池 ----------
+
+/**
+ * 全站共用的标签池（tag 表），按新增倒序；keyword 非空时模糊搜索。
+ * 每个标签带三类内容的使用数，供页面展示与删除确认用。
+ * @returns {Promise<Array<{id:number,name:string,articleCount:number,essayCount:number,photoCount:number}>>}
+ */
+export function fetchAdminTags(keyword) {
+  return request('/admin/tags', keyword ? { keyword } : undefined)
+}
+
+/** 新增标签；重名抛 409，message 为「标签「xx」已存在」 */
+export function createTag(name) {
+  return post('/admin/tags', { name })
+}
+
+/** 改名：后端把文章/随笔/照片里的旧名一并替换 */
+export function updateTag(id, name) {
+  return put(`/admin/tags/${id}`, { name })
+}
+
+/** 删除：后端把该标签从三类内容中一并移除 */
+export function deleteTag(id) {
+  return del(`/admin/tags/${id}`)
+}
+
+// ---------- 项目展示 ----------
+
+/**
+ * 项目全量列表（含未展示的），按 sort_order 升序、id 升序；readme 全文随列表返回，供编辑回填
+ * @returns {Promise<Array<{id:number,name:string,slug:string,desc:string,stack:string[],status:string,repo:string|null,demo:string|null,period:string|null,role:string|null,readme:string|null,sortOrder:number,visible:boolean}>>}
+ */
+export function fetchAdminProjects() {
+  return request('/admin/projects')
+}
+
+/**
+ * 新建项目；slug 用于前台详情路由 /projects/:slug，只允许小写字母/数字/连字符，
+ * 重复抛 400「slug 已被其他项目使用」
+ * @returns {Promise<{id:number}>} 返回 201 与新 id
+ */
+export function createProject(payload) {
+  return post('/admin/projects', payload)
+}
+
+/** 更新项目；id 不存在时抛 status=404 */
+export function updateProject(id, payload) {
+  return put(`/admin/projects/${id}`, payload)
+}
+
+/** 删除项目；前台项目页与详情页随之消失，行为流水里的历史记录不受影响 */
+export function deleteProject(id) {
+  return del(`/admin/projects/${id}`)
+}
+
+// ---------- 用户 / 后台账号 ----------
+
+/**
+ * 注册用户列表（最新在前），带评论/留言计数与浏览统计，便于评估删号影响
+ * @returns {Promise<Array<{id:number,email:string,name:string,time:string,commentCount:number,messageCount:number,visitCount:number,lastVisit:string|null}>>}
+ */
+export function fetchAdminUsers() {
+  return request('/admin/users')
+}
+
+/**
+ * 匿名游客列表（按最近访问倒序，没浏览过的排最后），带浏览与点赞计数。
+ * visitorKey 是访客的匿名身份（v:{uuid}），查轨迹时原样传回
+ * @returns {Promise<Array<{visitorKey:string,visitCount:number,likeCount:number,firstVisit:string|null,lastVisit:string|null}>>}
+ */
+export function fetchAdminGuests() {
+  return request('/admin/visitors')
+}
+
+/**
+ * 某位访客的行为记录（打开文档/项目、评论、留言、点赞），最新在前，最多 500 条。
+ * key 用注册用户的 `u:{id}` 或游客列表里的 visitorKey
+ * @returns {Promise<Array<{action:string,path:string,title:string|null,detail:string|null,time:string}>>}
+ */
+export function fetchVisitorTrail(key) {
+  return request('/admin/visits', { key })
+}
+
+/**
+ * 全站访客行为流水（最新在前，最多 500 条），只含有意义的行为：
+ * 打开文档/项目、评论、留言、点赞；页面导航不在内。
+ * @param {string} [action] 类型筛选：post / project / comment / message / like，缺省全部
+ * @returns {Promise<{summary:Object<string,number>,items:Array<{action:string,path:string,title:string|null,detail:string|null,time:string,visitorKey:string,userName:string|null}>>}>}
+ * summary 是各类型的全量计数（不受筛选影响）
+ */
+export function fetchActivities(action) {
+  return request('/admin/activities', action ? { action } : undefined)
+}
+
+/** 重置用户密码；密码 6-72 位，用户下次登录用新口令 */
+export function resetAdminUserPassword(id, password) {
+  return put(`/admin/users/${id}/password`, { password })
+}
+
+/** 删除用户：其评论/留言保留但归属置空，点赞记录随号消失 */
+export function deleteAdminUser(id) {
+  return del(`/admin/users/${id}`)
+}
+
+/**
+ * 后台账号列表（按创建序）；current 标记当前登录的账号
+ * @returns {Promise<Array<{id:number,username:string,displayName:string,enabled:boolean,time:string,current:boolean}>>}
+ */
+export function fetchAdminAccounts() {
+  return request('/admin/accounts')
+}
+
+/**
+ * 新建后台账号（创建即启用）；用户名重复抛 code=USERNAME_TAKEN
+ * @param {{ username: string, displayName: string, password: string }} payload
+ */
+export function createAdminAccount(payload) {
+  return post('/admin/accounts', payload)
+}
+
+/**
+ * 编辑后台账号；displayName / enabled / password 三项可选传，password 传空串表示不改。
+ * 停用自己、删除自己、停掉最后一个启用账号会被服务端拒绝（CANNOT_DISABLE_SELF /
+ * CANNOT_DELETE_SELF / LAST_ADMIN）
+ */
+export function updateAdminAccount(id, payload) {
+  return put(`/admin/accounts/${id}`, payload)
+}
+
+export function deleteAdminAccount(id) {
+  return del(`/admin/accounts/${id}`)
+}
+
+/** 改自己的密码；原密码不对抛 code=WRONG_PASSWORD，改完当前会话仍然有效 */
+export function changeAdminPassword(oldPassword, newPassword) {
+  return put('/admin/accounts/password', { oldPassword, newPassword })
+}

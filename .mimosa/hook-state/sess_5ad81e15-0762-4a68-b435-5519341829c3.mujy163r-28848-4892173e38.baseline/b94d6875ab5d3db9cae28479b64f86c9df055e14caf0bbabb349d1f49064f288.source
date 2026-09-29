@@ -1,0 +1,109 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.dto.SiteAssets;
+import com.example.bloghd.entity.SiteConfig;
+import com.example.bloghd.mapper.SiteConfigMapper;
+import com.example.bloghd.support.LinkPolicy;
+import com.example.bloghd.support.PageBackgrounds;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * 后台的站点配置接口：各页面背景素材的改写。
+ * 值为空串表示清掉该配置（前台回落本地素材），null 表示不动。
+ * 页面键白名单见 PageBackgrounds，拦截未知页面写脏键。
+ */
+@RestController
+@RequestMapping("/api/admin/site")
+public class AdminSiteController {
+
+    private static final int MAX_VALUE = 500;
+
+    private final SiteConfigMapper siteConfigMapper;
+
+    public AdminSiteController(SiteConfigMapper siteConfigMapper) {
+        this.siteConfigMapper = siteConfigMapper;
+    }
+
+    @GetMapping
+    public SiteAssets detail() {
+        return site();
+    }
+
+    @PutMapping
+    public SiteAssets update(@RequestBody SiteForm form) {
+        if (form.backgrounds() != null) {
+            form.backgrounds().forEach((page, assets) -> {
+                if (!PageBackgrounds.PAGES.contains(page)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未知页面：" + page);
+                }
+                if (assets == null) {
+                    return;
+                }
+                // null 语义是「保持不变」，前端编辑器总提交完整表单，只会送值或空串
+                if (assets.image() != null) {
+                    upsert(PageBackgrounds.storageKey(page, "image"), assets.image());
+                }
+                if (assets.video() != null) {
+                    upsert(PageBackgrounds.storageKey(page, "video"), assets.video());
+                }
+            });
+        }
+        return site();
+    }
+
+    private void upsert(String key, String value) {
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            siteConfigMapper.deleteById(key);
+            return;
+        }
+        if (trimmed.length() > MAX_VALUE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "配置值不能超过 " + MAX_VALUE + " 字");
+        }
+        // 背景地址会进公共页面的 <img>/<video>：scheme 规则与项目链接一致（LinkPolicy）
+        if (!LinkPolicy.allowed(trimmed)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "背景地址必须是 https:// 外链或站内 " + LinkPolicy.ASSET_PREFIX + " 素材");
+        }
+        SiteConfig config = siteConfigMapper.selectById(key);
+        if (config == null) {
+            config = new SiteConfig();
+            config.setConfigKey(key);
+            config.setConfigValue(trimmed);
+            siteConfigMapper.insert(config);
+        } else {
+            config.setConfigValue(trimmed);
+            siteConfigMapper.updateById(config);
+        }
+    }
+
+    private SiteAssets site() {
+        Map<String, SiteAssets.PageAssets> backgrounds = new LinkedHashMap<>();
+        for (String page : PageBackgrounds.PAGES) {
+            backgrounds.put(page, new SiteAssets.PageAssets(
+                    value(PageBackgrounds.storageKey(page, "image")),
+                    value(PageBackgrounds.storageKey(page, "video"))));
+        }
+        return new SiteAssets(backgrounds);
+    }
+
+    private String value(String key) {
+        SiteConfig config = siteConfigMapper.selectById(key);
+        return config == null ? null : config.getConfigValue();
+    }
+
+    public record SiteForm(Map<String, PageForm> backgrounds) {
+    }
+
+    public record PageForm(String image, String video) {
+    }
+}

@@ -1,0 +1,91 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.entity.ResumeContent;
+import com.example.bloghd.mapper.ResumeContentMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Map;
+
+/**
+ * 简历：口令只存在服务端配置里，校验与登录态无关，登录用户同样要过这一关；
+ * 解锁标记挂在会话上，之后内容经 /resume/content 从库里整包下发——
+ * 正文不进前端包，口令才真正挡得住没解锁的人。
+ */
+@RestController
+@RequestMapping("/api/resume")
+public class ResumeController {
+
+    /** 解锁标记的会话键：服务重启换新会话，天然回到未解锁状态 */
+    static final String UNLOCKED_ATTR = "resumeUnlocked";
+
+    private final String password;
+    private final ResumeContentMapper resumeContentMapper;
+
+    /** 与 AdminPostController 同一套约定：Boot 4 容器默认 Jackson 3，直接实例化 */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    public ResumeController(@Value("${blog.resume.password:}") String password,
+                            ResumeContentMapper resumeContentMapper) {
+        this.password = password;
+        this.resumeContentMapper = resumeContentMapper;
+    }
+
+    @PostMapping("/unlock")
+    public UnlockResult unlock(@RequestBody UnlockForm form, HttpServletRequest request) {
+        String input = form.password() == null ? "" : form.password().trim();
+        if (input.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请输入访问密码");
+        }
+        if (password.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "服务端未配置简历密码");
+        }
+        // 定长比较，避免按字符逐位提前返回
+        if (!MessageDigest.isEqual(password.getBytes(StandardCharsets.UTF_8),
+                input.getBytes(StandardCharsets.UTF_8))) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "密码不正确");
+        }
+        request.getSession().setAttribute(UNLOCKED_ATTR, Boolean.TRUE);
+        return new UnlockResult(true);
+    }
+
+    /** 解锁后取简历全文；未解锁 401，前端据此退回口令门 */
+    @GetMapping("/content")
+    public ResponseEntity<Map<String, Object>> content(HttpSession session) {
+        if (!Boolean.TRUE.equals(session.getAttribute(UNLOCKED_ATTR))) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        ResumeContent row = resumeContentMapper.selectOne(Wrappers.<ResumeContent>lambdaQuery()
+                .orderByAsc(ResumeContent::getId)
+                .last("LIMIT 1"));
+        if (row == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "简历内容未配置");
+        }
+        try {
+            return ResponseEntity.ok(JSON.readValue(row.getPayload(), new TypeReference<>() {}));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("简历内容 JSON 解析失败 id=" + row.getId(), e);
+        }
+    }
+
+    public record UnlockForm(String password) {
+    }
+
+    public record UnlockResult(boolean unlocked) {
+    }
+}

@@ -1,0 +1,381 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20260924T143514081Z-6420-8e4d272b3718",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "baseline-read",
+      "target": "blog-ht/src/stores/auth.js",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-ht/src/api/admin.js",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-ht/src/api/index.js",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 83,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 4
+    },
+    "change_tracking": {
+      "touched_observed": 0,
+      "touched_retained": 0,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 11,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 11,
+      "selected_files": 11,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 11,
+      "scanned_files": 11,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "baseline_snapshot_unreadable": 7,
+      "project_check_failed": 7
+    },
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/stores/auth.js",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/admin.js",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/index.js",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/stores/auth.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/admin.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-ht/src/api/index.js",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-09-24T14:35:14.081Z",
+  "session_id": "sess_9e953751-73a0-4c14-be87-466069b5d4fb",
+  "target": ".",
+  "revision": null,
+  "rules_version": "unavailable",
+  "diff_hash": "91286cc870f7277747f6e8c4cdd37ef5d0a9cb1d1a885d594fed35590be07dca",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 11,
+    "changed_files": [
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/config/SecurityConfig.java",
+        "ranges": [
+          {
+            "start": 42,
+            "end": 44
+          }
+        ],
+        "before_hash": "0d20acca4d4a192d9b9b39e5e6a34b50be16385a421255210fe1cfb0b6d03775",
+        "after_hash": "393dbeb4ecbe6322fb253c0868d529fe3da60b39ccabdd39f844739b9cf8e099"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminAuthController.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 122
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "b82467d8318ef11a4a109995c53f7a6c8ae6e4c622e889baaf2c434025473528"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminMessageController.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 51
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "0ec2d1bc668c0c72acc131a8d3a4b1e7f0c07b906f9cdd22d4418cf3ff4d95fd"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/controller/AdminPostController.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 155
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "5a847303ffd604be8672d2fb2ab43b5eb911c8e9ca08f4ae5e1a02c1376e6ae8"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 258
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "38439c463d7dc91f0bca1cf123a083b8e8f0b30bde9c80b70e7ae68a91e4d3f0"
+      },
+      {
+        "file": "blog-ht/src/api/admin.js",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 51
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "01c4b33f54b5719aff3a57be8c03e5a32b54fe5e749f186bf260d19bf4ea0471"
+      },
+      {
+        "file": "blog-ht/src/api/index.js",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 120
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "6b7d3a4b77d587126b848d6961f1dfd709e301583bd7e140039837cd387fd678"
+      },
+      {
+        "file": "blog-ht/src/main.js",
+        "ranges": [
+          {
+            "start": 6,
+            "end": 6
+          }
+        ],
+        "before_hash": "14db93eb7d5eb98cb15e73595d0af03ca78d0b548ec96521894955bb5814689c",
+        "after_hash": "2b26f05c5fbaa055b5ad517246267dd7070e31f997bda7b5d3af0bf0158cc9e7"
+      },
+      {
+        "file": "blog-ht/src/router/index.js",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 7,
+            "end": 43
+          }
+        ],
+        "before_hash": "756fccdf1704f381b282456b65af866468ab08cd5ab274e2fd39ed8fc06bd7b7",
+        "after_hash": "3f7eb5887ddf8c8e6719ed3aa1f5fa6749d7dd040ef8ceb3a18d7757d6ac6597"
+      },
+      {
+        "file": "blog-ht/src/stores/auth.js",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 42
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "6185513aa8a0ee08dc2cdf8387b6c938e620bd86a0b86033f1bc308446303701"
+      },
+      {
+        "file": "blog-ht/vite.config.js",
+        "ranges": [
+          {
+            "start": 9,
+            "end": 9
+          },
+          {
+            "start": 15,
+            "end": 23
+          }
+        ],
+        "before_hash": "4fd60c54e9a6b350a8087919902a5b480db05b4eb4864fe800daa10761dbd5d4",
+        "after_hash": "6cad4bd7fd897f9f48149ae92437a375605cf6a3441f0c34d0d2ddf91f7251ad"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-09-24T14:35:12.600Z",
+    "completed_at": "2026-09-24T14:35:14.081Z",
+    "duration_ms": 1481,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 1481,
+    "peakMemoryBytes": 152072192,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 11,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_9e953751-73a0-4c14-be87-466069b5d4fb-20260924T143514081Z-6420-8e4d272b3718.json",
+    "latest_report": ".mimosa/reports/task-review-sess_9e953751-73a0-4c14-be87-466069b5d4fb.json",
+    "history_summary": ".mimosa/history/run-20260924T143514081Z-6420-8e4d272b3718.json"
+  }
+}

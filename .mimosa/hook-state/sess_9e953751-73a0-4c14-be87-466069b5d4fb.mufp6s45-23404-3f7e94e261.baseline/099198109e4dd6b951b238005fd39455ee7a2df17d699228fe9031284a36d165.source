@@ -1,0 +1,155 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.dto.PostDetail;
+import com.example.bloghd.dto.PostSummary;
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * 后台的文章维护接口：新增、修改、删除。
+ * 列表与详情复用公开的 /api/posts（本就公开），这里只补「写」的那一半。
+ */
+@RestController
+@RequestMapping("/api/admin/posts")
+public class AdminPostController {
+
+    private static final int MAX_TITLE = 200;
+    private static final int MAX_EXCERPT = 1000;
+    private static final int MAX_CATEGORY = 50;
+    private static final int MAX_TAGS = 10;
+    private static final int MAX_TAG = 50;
+    /** 与前端渲染器支持的块类型对齐，存进去的必须是能被首页渲染的正文 */
+    private static final Set<String> BLOCK_TYPES = Set.of("p", "h2", "quote", "code", "ul");
+
+    /** 与 PostDetail 同一套序列化：Boot 4 容器默认是 Jackson 3，Jackson 2 只给 MyBatis-Plus 用，直接实例化 */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private final ArticleMapper articleMapper;
+
+    public AdminPostController(ArticleMapper articleMapper) {
+        this.articleMapper = articleMapper;
+    }
+
+    @PostMapping
+    public ResponseEntity<PostDetail> create(@RequestBody PostForm form) {
+        Article article = new Article();
+        apply(article, form);
+        article.setViews(0);
+        article.setComments(0);
+        articleMapper.insert(article);
+        return ResponseEntity.status(HttpStatus.CREATED).body(PostDetail.from(article));
+    }
+
+    @PutMapping("/{id}")
+    public PostDetail update(@PathVariable Long id, @RequestBody PostForm form) {
+        Article article = articleMapper.selectById(id);
+        if (article == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文章不存在");
+        }
+        apply(article, form);
+        articleMapper.updateById(article);
+        return PostDetail.from(article);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (articleMapper.deleteById(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文章不存在");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 校验 + 落库字段组装，新增与编辑共用 */
+    private void apply(Article article, PostForm form) {
+        String title = trimmed(form.title());
+        if (title.isEmpty() || title.length() > MAX_TITLE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "标题必填且不超过 " + MAX_TITLE + " 字");
+        }
+        String category = trimmed(form.category());
+        if (category.isEmpty() || category.length() > MAX_CATEGORY) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "分类必填且不超过 " + MAX_CATEGORY + " 字");
+        }
+        if (form.publishDate() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "发布日期必填");
+        }
+        String excerpt = trimmed(form.excerpt());
+        if (excerpt.length() > MAX_EXCERPT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "摘要不能超过 " + MAX_EXCERPT + " 字");
+        }
+        List<String> tags = form.tags() == null ? List.of() : form.tags().stream()
+                .map(AdminPostController::trimmed).filter(s -> !s.isEmpty()).toList();
+        if (tags.size() > MAX_TAGS || tags.stream().anyMatch(t -> t.length() > MAX_TAG)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "标签最多 " + MAX_TAGS + " 个，每个不超过 " + MAX_TAG + " 字");
+        }
+
+        String content = serializeContent(form.content());
+
+        article.setTitle(title);
+        article.setExcerpt(excerpt);
+        article.setPublishDate(form.publishDate());
+        article.setCategory(category);
+        article.setTags(tags);
+        article.setContent(content);
+    }
+
+    /** 正文块序列化成 JSON 存库；块类型不认识或内容为空一律挡下 */
+    private String serializeContent(List<Map<String, Object>> blocks) {
+        if (blocks == null) blocks = List.of();
+        for (Map<String, Object> block : blocks) {
+            Object type = block.get("type");
+            if (!(type instanceof String t) || !BLOCK_TYPES.contains(t)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "正文有不支持的块类型: " + type);
+            }
+            if (t.equals("ul")) {
+                if (!(block.get("items") instanceof List<?> items) || items.isEmpty()) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "列表块不能为空");
+                }
+            } else if (t.equals("code")) {
+                if (isBlank(block.get("code"))) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "代码块不能为空");
+                }
+            } else if (isBlank(block.get("text"))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "正文有内容为空的块");
+            }
+        }
+        try {
+            return JSON.writeValueAsString(blocks);
+        } catch (JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "正文格式无法序列化");
+        }
+    }
+
+    private static boolean isBlank(Object value) {
+        return !(value instanceof String s) || s.isBlank();
+    }
+
+    private static String trimmed(String raw) {
+        return raw == null ? "" : raw.trim();
+    }
+
+    public record PostForm(String title,
+                           String excerpt,
+                           LocalDate publishDate,
+                           String category,
+                           List<String> tags,
+                           List<Map<String, Object>> content) {
+    }
+}

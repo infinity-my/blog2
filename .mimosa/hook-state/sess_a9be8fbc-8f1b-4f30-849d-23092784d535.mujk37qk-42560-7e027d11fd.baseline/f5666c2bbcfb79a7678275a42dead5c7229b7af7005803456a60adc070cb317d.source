@@ -1,0 +1,196 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.LikeResult;
+import com.example.bloghd.dto.MessageView;
+import com.example.bloghd.dto.ReplyView;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import com.example.bloghd.security.AuthPrincipal;
+import com.example.bloghd.security.CurrentUser;
+import com.example.bloghd.support.LikeSupport;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/messages")
+public class MessageController {
+
+    private static final int MAX_CONTENT = 200;
+    private static final int MAX_NAME = 50;
+    private static final String ANONYMOUS_NAME = "匿名";
+
+    private final MessageMapper messageMapper;
+    private final MessageReplyMapper messageReplyMapper;
+    private final CurrentUser currentUser;
+    private final LikeSupport likeSupport;
+
+    public MessageController(MessageMapper messageMapper,
+                             MessageReplyMapper messageReplyMapper,
+                             CurrentUser currentUser,
+                             LikeSupport likeSupport) {
+        this.messageMapper = messageMapper;
+        this.messageReplyMapper = messageReplyMapper;
+        this.currentUser = currentUser;
+        this.likeSupport = likeSupport;
+    }
+
+    /** 留言列表，最新在前；回复按时间正序挂在各自主楼下；liked 按当前访客的点赞记录回显 */
+    @GetMapping
+    public List<MessageView> list(HttpServletRequest request, HttpServletResponse response) {
+        String visitorKey = likeSupport.visitorKey(currentUser.orNull(), request, response);
+        Set<Long> likedMessages = likeSupport.likedTargetIds(LikeSupport.TYPE_MESSAGE, visitorKey);
+        Set<Long> likedReplies = likeSupport.likedTargetIds(LikeSupport.TYPE_REPLY, visitorKey);
+
+        Map<Long, List<ReplyView>> repliesByMessage = messageReplyMapper
+                .selectList(new LambdaQueryWrapper<MessageReply>()
+                        .orderByAsc(MessageReply::getCreatedAt, MessageReply::getId))
+                .stream()
+                .collect(Collectors.groupingBy(MessageReply::getMessageId,
+                        Collectors.mapping(r -> ReplyView.from(r, likedReplies.contains(r.getId())),
+                                Collectors.toList())));
+
+        return messageMapper
+                .selectList(new LambdaQueryWrapper<Message>()
+                        .orderByDesc(Message::getCreatedAt, Message::getId))
+                .stream()
+                .map(m -> MessageView.from(m,
+                        repliesByMessage.getOrDefault(m.getId(), List.of()),
+                        likedMessages.contains(m.getId())))
+                .toList();
+    }
+
+    @PostMapping
+    public MessageView create(@RequestBody MessageForm form) {
+        Speaking speaking = resolveSpeaking(form.name(), form.anonymous());
+        Message message = new Message();
+        message.setName(speaking.name());
+        message.setContent(requiredContent(form.content()));
+        message.setLikes(0);
+        message.setCreatedAt(now());
+        message.setUserId(speaking.userId());
+        messageMapper.insert(message);
+        return MessageView.from(message, List.of(), false);
+    }
+
+    /**
+     * 点赞/取消由服务端按 like_record 幂等裁决：重复点赞与重复取消都不再动计数，
+     * 请求体里的 liked 只是「想切到哪个状态」的意图。
+     */
+    @PostMapping("/{id}/like")
+    public LikeResult like(@PathVariable Long id,
+                           @RequestBody LikeForm form,
+                           HttpServletRequest request,
+                           HttpServletResponse response) {
+        Message message = messageMapper.selectById(id);
+        if (message == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "留言不存在");
+        boolean liked = Boolean.TRUE.equals(form.liked());
+        String visitorKey = likeSupport.visitorKey(currentUser.orNull(), request, response);
+        if (likeSupport.toggle(LikeSupport.TYPE_MESSAGE, id, liked, visitorKey)) {
+            messageMapper.addLikes(id, liked ? 1 : -1);
+        }
+        return new LikeResult(id, messageMapper.selectById(id).getLikes());
+    }
+
+    @PostMapping("/{id}/replies")
+    public ReplyView reply(@PathVariable Long id, @RequestBody ReplyForm form) {
+        if (messageMapper.selectById(id) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "留言不存在");
+        }
+        MessageReply reply = new MessageReply();
+        Speaking speaking = resolveSpeaking(form.name(), form.anonymous());
+        reply.setMessageId(id);
+        reply.setName(speaking.name());
+        reply.setContent(requiredContent(form.content()));
+        reply.setLikes(0);
+        reply.setCreatedAt(now());
+        // 博主身份由后台管理侧写入，公开接口一律按普通访客落库
+        reply.setIsAuthor(false);
+        reply.setReplyTo(form.replyTo() == null || form.replyTo().isBlank() ? null : form.replyTo().trim());
+        reply.setUserId(speaking.userId());
+        messageReplyMapper.insert(reply);
+        return ReplyView.from(reply, false);
+    }
+
+    @PostMapping("/replies/{id}/like")
+    public LikeResult likeReply(@PathVariable Long id,
+                                @RequestBody LikeForm form,
+                                HttpServletRequest request,
+                                HttpServletResponse response) {
+        MessageReply reply = messageReplyMapper.selectById(id);
+        if (reply == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "回复不存在");
+        boolean liked = Boolean.TRUE.equals(form.liked());
+        String visitorKey = likeSupport.visitorKey(currentUser.orNull(), request, response);
+        if (likeSupport.toggle(LikeSupport.TYPE_REPLY, id, liked, visitorKey)) {
+            messageReplyMapper.addLikes(id, liked ? 1 : -1);
+        }
+        return new LikeResult(id, messageReplyMapper.selectById(id).getLikes());
+    }
+
+    /**
+     * 发言身份一律由服务端裁决：登录用户按 anonymous 开关在账号身份与匿名之间选，
+     * 未登录则按前端昵称署名。请求体不再接受 userId，否则任何人都能伪造他人身份发言。
+     */
+    private Speaking resolveSpeaking(String clientName, Boolean anonymous) {
+        AuthPrincipal user = currentUser.orNull();
+        if (user == null) {
+            return new Speaking(null, displayName(clientName));
+        }
+        if (Boolean.TRUE.equals(anonymous)) {
+            return new Speaking(null, ANONYMOUS_NAME);
+        }
+        // 昵称取账号里的，不采信请求体传来的值
+        return new Speaking(user.id(), user.name());
+    }
+
+    /** 秒级截断，与前端 yyyy-MM-dd HH:mm 展示对齐 */
+    private static LocalDateTime now() {
+        return LocalDateTime.now().withNano(0);
+    }
+
+    private static String requiredContent(String raw) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "内容不能为空");
+        }
+        if (text.length() > MAX_CONTENT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "内容不能超过 " + MAX_CONTENT + " 字");
+        }
+        return text;
+    }
+
+    private static String displayName(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) return ANONYMOUS_NAME;
+        return name.length() > MAX_NAME ? name.substring(0, MAX_NAME) : name;
+    }
+
+    public record MessageForm(String name, String content, Boolean anonymous) {
+    }
+
+    public record ReplyForm(String name, String content, String replyTo, Boolean anonymous) {
+    }
+
+    public record LikeForm(Boolean liked) {
+    }
+
+    /** 落库用的发言身份 */
+    private record Speaking(Long userId, String name) {
+    }
+}

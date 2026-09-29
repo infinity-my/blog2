@@ -1,0 +1,143 @@
+package com.example.bloghd.security;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * 登录类接口的内存限流，挡暴力试密码与邮箱探测。
+ * 滑动窗口 15 分钟：同一「邮箱+IP」失败 5 次、或同一 IP 失败 30 次即拒绝，
+ * 成功后清空该身份的计数。单实例博客够用；进程重启计数清零，攻击窗口随之重来。
+ *
+ * 键与内存双重有界：身份串截断到 {@link #MAX_KEY_LENGTH} 字符，两个映射最多各跟踪
+ * {@link #MAX_TRACKED_KEYS} 个键（LRU 淘汰），checkOrThrow 时全表清扫过期窗口 ——
+ * 攻击者换着花样伪造超长/海量身份，也无法把内存撑爆。
+ */
+@Component
+public class LoginRateLimiter {
+
+    static final int MAX_FAILURES_PER_IDENTITY = 5;
+    static final int MAX_FAILURES_PER_IP = 30;
+    private static final long WINDOW_MILLIS = 15 * 60 * 1000L;
+
+    /** 身份串上限：对齐 email 200 / username 50 的列宽，超长输入截断后再入表 */
+    static final int MAX_KEY_LENGTH = 260;
+    /** 每个映射最多跟踪的键数，超出按 LRU 淘汰最久未访问的键 */
+    static final int MAX_TRACKED_KEYS = 10_000;
+
+    /**
+     * 身份锁的 key 是「邮箱|出口 IP」：攻击者只能锁死自己 IP 上的组合，
+     * 无法借此把别人的邮箱整体锁到登录不了。
+     */
+    private final Map<String, Deque<Long>> failuresByIdentity = lruMap();
+    private final Map<String, Deque<Long>> failuresByIp = lruMap();
+
+    private static Map<String, Deque<Long>> lruMap() {
+        // accessOrder=true：get/compute 都算访问，触顶时淘汰的是最久没动静的键
+        return new LinkedHashMap<>(64, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Deque<Long>> eldest) {
+                return size() > MAX_TRACKED_KEYS;
+            }
+        };
+    }
+
+    /** 超限抛 429 TOO_MANY_ATTEMPTS，文案带剩余等待分钟数 */
+    public synchronized void checkOrThrow(String email, String ip) {
+        long now = System.currentTimeMillis();
+        sweepExpired(now);
+        int identityWait = blockedMinutes(failuresByIdentity, boundedKey(identityKey(email, ip)),
+                MAX_FAILURES_PER_IDENTITY, now);
+        int ipWait = blockedMinutes(failuresByIp, boundedKey(ip), MAX_FAILURES_PER_IP, now);
+        int waitMinutes = Math.max(identityWait, ipWait);
+        if (waitMinutes > 0) {
+            throw new AuthException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_ATTEMPTS",
+                    "尝试太频繁了，请 " + waitMinutes + " 分钟后再试");
+        }
+    }
+
+    public synchronized void recordFailure(String email, String ip) {
+        long now = System.currentTimeMillis();
+        failuresByIdentity.computeIfAbsent(boundedKey(identityKey(email, ip)), k -> new ArrayDeque<>())
+                .addLast(now);
+        failuresByIp.computeIfAbsent(boundedKey(ip), k -> new ArrayDeque<>()).addLast(now);
+    }
+
+    /**
+     * 成功后清空该身份与该 IP 的失败记录。
+     * IP 的失败队列是同出口 IP 下所有邮箱共用的，一并清掉即视为「这个出口不像在攻击」。
+     */
+    public synchronized void reset(String email, String ip) {
+        failuresByIdentity.remove(boundedKey(identityKey(email, ip)));
+        failuresByIp.remove(boundedKey(ip));
+    }
+
+    private static String identityKey(String email, String ip) {
+        return email.toLowerCase(Locale.ROOT) + "|" + ip;
+    }
+
+    /** 超长身份截断入表：绕过列宽的假邮箱/假 IP 造不出无限长的键 */
+    static String boundedKey(String key) {
+        return key.length() <= MAX_KEY_LENGTH ? key : key.substring(0, MAX_KEY_LENGTH);
+    }
+
+    /** 测试观察用：两个映射当前跟踪的键数 */
+    int trackedIdentities() {
+        return failuresByIdentity.size();
+    }
+
+    int trackedIps() {
+        return failuresByIp.size();
+    }
+
+    /**
+     * 全表清扫过期窗口（checkOrThrow 每次调用时触发）：只失败过一两次就销声匿迹的键
+     * 也要能被回收，否则 map 会被一次性身份顶满上限、活着的攻击窗口反被 LRU 挤掉。
+     * 包内可见以便测试直接驱动时钟。
+     */
+    void sweepExpired(long now) {
+        sweepExpired(failuresByIdentity, now);
+        sweepExpired(failuresByIp, now);
+    }
+
+    private static void sweepExpired(Map<String, Deque<Long>> failures, long now) {
+        Iterator<Map.Entry<String, Deque<Long>>> it = failures.entrySet().iterator();
+        while (it.hasNext()) {
+            Deque<Long> window = it.next().getValue();
+            prune(window, now);
+            if (window.isEmpty()) {
+                it.remove();
+            }
+        }
+    }
+
+    /** 未超限返回 -1；超限返回按窗口内最早一次失败算出的剩余等待分钟数（至少 1） */
+    private static int blockedMinutes(Map<String, Deque<Long>> failures, String key, int maxFailures, long now) {
+        Deque<Long> window = failures.get(key);
+        if (window == null) {
+            return -1;
+        }
+        prune(window, now);
+        if (window.isEmpty()) {
+            failures.remove(key);
+            return -1;
+        }
+        if (window.size() < maxFailures) {
+            return -1;
+        }
+        long remainMillis = window.peekFirst() + WINDOW_MILLIS - now;
+        return Math.max(1, (int) Math.ceil(remainMillis / 60000.0));
+    }
+
+    private static void prune(Deque<Long> window, long now) {
+        while (!window.isEmpty() && window.peekFirst() + WINDOW_MILLIS <= now) {
+            window.pollFirst();
+        }
+    }
+}

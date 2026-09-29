@@ -1,0 +1,163 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.PhotoView;
+import com.example.bloghd.entity.AlbumPhoto;
+import com.example.bloghd.mapper.AlbumPhotoMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * 后台的相册维护接口：新增、修改、删除照片。
+ * 图片文件先经 /api/admin/upload 落盘，这里只登记元数据（src/尺寸/说明等）。
+ * 列表复用公开的 /api/album/photos（本就公开）。
+ */
+@RestController
+@RequestMapping("/api/admin/photos")
+public class AdminPhotoController {
+
+    private static final int MAX_TITLE = 200;
+    private static final int MAX_LOCATION = 100;
+    private static final int MAX_SHOT = 100;
+    private static final int MAX_CAPTION = 1000;
+    private static final int MAX_TAGS = 10;
+    private static final int MAX_TAG = 50;
+    private static final int MAX_TAGS_JSON = 300;
+    private static final String SRC_PREFIX = "/api/assets/";
+
+    /** Jackson 2 与实体 tags 列的 JacksonTypeHandler 同源，校验序列化尺寸用它 */
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private final AlbumPhotoMapper albumPhotoMapper;
+
+    public AdminPhotoController(AlbumPhotoMapper albumPhotoMapper) {
+        this.albumPhotoMapper = albumPhotoMapper;
+    }
+
+    @PostMapping
+    public ResponseEntity<PhotoView> create(@RequestBody PhotoForm form) {
+        AlbumPhoto photo = new AlbumPhoto();
+        apply(photo, form);
+        albumPhotoMapper.insert(photo);
+        return ResponseEntity.status(HttpStatus.CREATED).body(PhotoView.from(photo));
+    }
+
+    @PutMapping("/{id}")
+    public PhotoView update(@PathVariable Long id, @RequestBody PhotoForm form) {
+        AlbumPhoto photo = albumPhotoMapper.selectById(id);
+        if (photo == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "照片不存在");
+        }
+        apply(photo, form);
+        albumPhotoMapper.updateById(photo);
+        return PhotoView.from(photo);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (albumPhotoMapper.deleteById(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "照片不存在");
+        }
+        // 磁盘上的图片文件保留：同一素材可能被随笔引用，由部署侧定期清理孤儿文件
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 校验 + 落库字段组装，新增与编辑共用 */
+    private void apply(AlbumPhoto photo, PhotoForm form) {
+        String src = trimmed(form.src());
+        if (!src.startsWith(SRC_PREFIX) || src.length() > 300) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "图片地址必须是 " + SRC_PREFIX + " 下的上传素材");
+        }
+        if (form.width() == null || form.width() <= 0 || form.height() == null || form.height() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片尺寸无效");
+        }
+        String title = trimmed(form.title());
+        if (title.isEmpty() || title.length() > MAX_TITLE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "标题必填且不超过 " + MAX_TITLE + " 字");
+        }
+        if (form.shootDate() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "拍摄日期必填");
+        }
+        checkLength("拍摄地", form.location(), MAX_LOCATION);
+        checkLength("器材", form.shot(), MAX_SHOT);
+        checkLength("说明", form.caption(), MAX_CAPTION);
+
+        List<String> tags = cleanList(form.tags());
+        if (tags.size() > MAX_TAGS || tags.stream().anyMatch(t -> t.length() > MAX_TAG)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "标签最多 " + MAX_TAGS + " 个，每个不超过 " + MAX_TAG + " 字");
+        }
+        checkJsonFits("标签", tags, MAX_TAGS_JSON);
+
+        photo.setSrc(src);
+        photo.setWidth(form.width());
+        photo.setHeight(form.height());
+        photo.setTitle(title);
+        photo.setShootDate(form.shootDate());
+        photo.setLocation(blankToNull(form.location(), MAX_LOCATION));
+        photo.setShot(blankToNull(form.shot(), MAX_SHOT));
+        photo.setCaption(blankToNull(form.caption(), MAX_CAPTION));
+        photo.setTags(tags);
+    }
+
+    private static void checkLength(String label, String value, int max) {
+        if (value != null && value.trim().length() > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "不能超过 " + max + " 字");
+        }
+    }
+
+    private static List<String> cleanList(List<String> raw) {
+        return raw == null ? List.of() : raw.stream()
+                .map(AdminPhotoController::trimmed)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
+    /** 列以 JSON 落库，超出列宽会在 SQL 层才报错，这里提前拦并给出可读提示 */
+    private static void checkJsonFits(String label, List<String> value, int max) {
+        try {
+            if (JSON.writeValueAsString(value).length() > max) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "内容过多");
+            }
+        } catch (JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "无法序列化");
+        }
+    }
+
+    private static String blankToNull(String value, int max) {
+        String text = trimmed(value);
+        if (text.isEmpty()) return null;
+        checkLength("内容", text, max);
+        return text;
+    }
+
+    private static String trimmed(String raw) {
+        return raw == null ? "" : raw.trim();
+    }
+
+    public record PhotoForm(String src,
+                            Integer width,
+                            Integer height,
+                            String title,
+                            LocalDate shootDate,
+                            String location,
+                            String shot,
+                            String caption,
+                            List<String> tags) {
+    }
+}

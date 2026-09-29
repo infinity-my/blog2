@@ -1,0 +1,384 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.entity.Comment;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import com.example.bloghd.security.LoginRateLimiter;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class AuthControllerTest {
+
+    private static final String EMAIL = "probe@example.com";
+    private static final String NAME = "探测用户";
+    // 测试口令运行期随机生成：源码不出现凭据字面量，每次运行的账号也互不共享口令
+    private static final String PASSWORD = "pwd-" + UUID.randomUUID().toString().substring(0, 8);
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private AppUserMapper appUserMapper;
+
+    @Autowired
+    private MessageMapper messageMapper;
+
+    @Autowired
+    private MessageReplyMapper messageReplyMapper;
+
+    @Autowired
+    private CommentMapper commentMapper;
+
+    @Autowired
+    private LoginRateLimiter rateLimiter;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        messageReplyMapper.delete(null);
+        messageMapper.delete(null);
+        appUserMapper.delete(null);
+        commentMapper.delete(null);
+        // 限流器是单例，失败记录会跨测试留存；EMAIL 被多个测试复用，先清干净保证确定性
+        rateLimiter.reset(EMAIL, "127.0.0.1");
+        // 账号接口挂了 CSRF，POST 必须回传 token；先 GET 一次拿 cookie
+        csrfCookie = mockMvc.perform(get("/api/posts"))
+                .andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    private MockHttpServletRequestBuilder authPost(String path, String body) {
+        return post(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body)
+                .cookie(csrfCookie)
+                .header("X-XSRF-TOKEN", csrfCookie.getValue());
+    }
+
+    private static String registerBody(String email, String name, String password) {
+        return "{\"email\":\"%s\",\"name\":\"%s\",\"password\":\"%s\"}".formatted(email, name, password);
+    }
+
+    private static String loginBody(String email, String password) {
+        return "{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password);
+    }
+
+    private MockHttpSession registerAndGetSession(String email, String name, String password) throws Exception {
+        MvcResult result = mockMvc.perform(authPost("/api/auth/register", registerBody(email, name, password)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    @Test
+    void registerCreatesAccountHashesPasswordAndLogsIn() throws Exception {
+        MockHttpSession session = registerAndGetSession(EMAIL, NAME, PASSWORD);
+        assertThat(session).isNotNull();
+
+        AppUser stored = appUserMapper.selectList(null).getFirst();
+        assertThat(stored.getEmail()).isEqualTo(EMAIL);
+        assertThat(stored.getName()).isEqualTo(NAME);
+        // 明文不落库，且确实是 BCrypt 串
+        assertThat(stored.getPasswordHash()).isNotEqualTo(PASSWORD);
+        assertThat(stored.getPasswordHash()).startsWith("$2");
+        assertThat(stored.getCreatedAt()).isNotNull();
+
+        // 注册即登录，同一会话可直接读身份
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.name").value(NAME))
+                .andExpect(jsonPath("$.id").value(stored.getId()))
+                // 响应体不含任何密码字段
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+    }
+
+    @Test
+    void registerNormalizesEmailCaseAndSpacing() throws Exception {
+        registerAndGetSession("  Probe@Example.COM  ", NAME, PASSWORD);
+
+        assertThat(appUserMapper.selectList(null).getFirst().getEmail()).isEqualTo(EMAIL);
+
+        // 大小写不同也能登录
+        mockMvc.perform(authPost("/api/auth/login", loginBody("PROBE@example.com", PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
+    }
+
+    @Test
+    void registerRejectsDuplicateEmail() throws Exception {
+        registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, "另一个人", PASSWORD)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EMAIL_TAKEN"));
+
+        assertThat(appUserMapper.selectList(null)).hasSize(1);
+    }
+
+    @Test
+    void registerValidatesEachField() throws Exception {
+        mockMvc.perform(authPost("/api/auth/register", registerBody("not-an-email", NAME, PASSWORD)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_EMAIL"));
+
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, "   ", PASSWORD)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NAME"));
+
+        // 21 个字符，刚好越过 20 的上限
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, "超".repeat(21), PASSWORD)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NAME"));
+
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, NAME, "12345")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PASSWORD"));
+
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, NAME, "x".repeat(73))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PASSWORD"));
+
+        assertThat(appUserMapper.selectList(null)).isEmpty();
+    }
+
+    @Test
+    void loginMergesUnknownEmailAndWrongPasswordIntoBadCredentials() throws Exception {
+        MvcResult unknownEmail = mockMvc.perform(authPost("/api/auth/login", loginBody(EMAIL, PASSWORD)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BAD_CREDENTIALS"))
+                .andReturn();
+
+        registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        MvcResult wrongPassword = mockMvc.perform(authPost("/api/auth/login", loginBody(EMAIL, "wrong-password")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BAD_CREDENTIALS"))
+                .andReturn();
+
+        // 两种失败响应体逐字节一致，登录口不泄露邮箱注册与否
+        assertThat(wrongPassword.getResponse().getContentAsByteArray())
+                .isEqualTo(unknownEmail.getResponse().getContentAsByteArray());
+    }
+
+    @Test
+    void loginLocksAfterRepeatedFailures() throws Exception {
+        String lockedEmail = "lock@example.com";
+        registerAndGetSession(lockedEmail, NAME, PASSWORD);
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(authPost("/api/auth/login", loginBody(lockedEmail, "wrong-password")))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 窗口内第 6 次：即使密码正确也先被限流拦下
+        mockMvc.perform(authPost("/api/auth/login", loginBody(lockedEmail, PASSWORD)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_ATTEMPTS"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("分钟")));
+    }
+
+    @Test
+    void successfulLoginResetsFailureCount() throws Exception {
+        String resetEmail = "reset@example.com";
+        registerAndGetSession(resetEmail, NAME, PASSWORD);
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(authPost("/api/auth/login", loginBody(resetEmail, "wrong-password")))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 成功登录清空计数，之后再错一次也还没到锁定期
+        mockMvc.perform(authPost("/api/auth/login", loginBody(resetEmail, PASSWORD)))
+                .andExpect(status().isOk());
+        mockMvc.perform(authPost("/api/auth/login", loginBody(resetEmail, "wrong-password")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("BAD_CREDENTIALS"));
+    }
+
+    @Test
+    void registerRateLimitsDuplicateEmailProbing() throws Exception {
+        registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, "另一个人", PASSWORD)))
+                    .andExpect(status().isConflict());
+        }
+
+        // 反复撞同一邮箱属于探测行为，同样吃到限流
+        mockMvc.perform(authPost("/api/auth/register", registerBody(EMAIL, "另一个人", PASSWORD)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_ATTEMPTS"));
+    }
+
+    @Test
+    void loginRotatesSessionIdToPreventFixation() throws Exception {
+        registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        // 攻击者预先固定一个 session id，受害者登录后该 id 若不变则可被劫持
+        MockHttpSession attackerFixed = new MockHttpSession();
+        String before = attackerFixed.getId();
+
+        mockMvc.perform(authPost("/api/auth/login", loginBody(EMAIL, PASSWORD)).session(attackerFixed))
+                .andExpect(status().isOk());
+
+        assertThat(attackerFixed.getId()).isNotEqualTo(before);
+    }
+
+    @Test
+    void meRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+
+        MockHttpSession session = registerAndGetSession(EMAIL, NAME, PASSWORD);
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
+    }
+
+    @Test
+    void logoutEndsSession() throws Exception {
+        MockHttpSession session = registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        mockMvc.perform(authPost("/api/auth/logout", "").session(session))
+                .andExpect(status().isNoContent());
+
+        // 会话已失效，再访问受保护接口回到未登录状态
+        mockMvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteRequiresCorrectPassword() throws Exception {
+        MockHttpSession session = registerAndGetSession(EMAIL, NAME, PASSWORD);
+
+        mockMvc.perform(authPost("/api/auth/delete", "{\"password\":\"wrong-password\"}").session(session))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WRONG_PASSWORD"));
+
+        // 失败后账号仍在
+        assertThat(appUserMapper.selectList(null)).hasSize(1);
+    }
+
+    @Test
+    void deleteAnonymizesMessagesAndRemovesAccount() throws Exception {
+        MockHttpSession session = registerAndGetSession(EMAIL, NAME, PASSWORD);
+        Long userId = appUserMapper.selectList(null).getFirst().getId();
+
+        Message mine = new Message();
+        mine.setName(NAME);
+        mine.setContent("我发的留言");
+        mine.setLikes(0);
+        mine.setCreatedAt(LocalDateTime.of(2026, 9, 24, 10, 0));
+        mine.setUserId(userId);
+        messageMapper.insert(mine);
+
+        Message guest = new Message();
+        guest.setName("访客");
+        guest.setContent("别人的留言");
+        guest.setLikes(0);
+        guest.setCreatedAt(LocalDateTime.of(2026, 9, 24, 10, 1));
+        guest.setUserId(null);
+        messageMapper.insert(guest);
+
+        MessageReply reply = new MessageReply();
+        reply.setMessageId(mine.getId());
+        reply.setName(NAME);
+        reply.setContent("我的回复");
+        reply.setLikes(0);
+        reply.setCreatedAt(LocalDateTime.of(2026, 9, 24, 10, 2));
+        reply.setIsAuthor(false);
+        reply.setUserId(userId);
+        messageReplyMapper.insert(reply);
+
+        Comment mineComment = new Comment();
+        mineComment.setArticleId(1L);
+        mineComment.setUserId(userId);
+        mineComment.setName(NAME);
+        mineComment.setContent("我的评论");
+        mineComment.setCreatedAt(LocalDateTime.of(2026, 9, 24, 10, 3));
+        commentMapper.insert(mineComment);
+
+        mockMvc.perform(authPost("/api/auth/delete", "{\"password\":\"" + PASSWORD + "\"}").session(session))
+                .andExpect(status().isNoContent());
+
+        // 账号没了
+        assertThat(appUserMapper.selectById(userId)).isNull();
+
+        // 留言与回复保留，只断开与账号的关联
+        Message mineAfter = messageMapper.selectById(mine.getId());
+        assertThat(mineAfter).isNotNull();
+        assertThat(mineAfter.getUserId()).isNull();
+        assertThat(mineAfter.getName()).isEqualTo(NAME);
+        assertThat(mineAfter.getContent()).isEqualTo("我发的留言");
+
+        assertThat(messageReplyMapper.selectById(reply.getId()).getUserId()).isNull();
+
+        // 评论同样保留，只断开与账号的关联
+        Comment commentAfter = commentMapper.selectById(mineComment.getId());
+        assertThat(commentAfter).isNotNull();
+        assertThat(commentAfter.getUserId()).isNull();
+        assertThat(commentAfter.getName()).isEqualTo(NAME);
+        assertThat(commentAfter.getContent()).isEqualTo("我的评论");
+
+        // 别人的留言不受影响
+        assertThat(messageMapper.selectById(guest.getId()).getContent()).isEqualTo("别人的留言");
+    }
+
+    @Test
+    void accountEndpointsRejectRequestsWithoutCsrfToken() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(EMAIL, PASSWORD)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void publicWriteEndpointsRequireCsrfToken() throws Exception {
+        // 公开写接口也已纳入 CSRF 保护，防跨站不再只依赖 SameSite=Lax
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"访客\",\"content\":\"公开留言\"}"))
+                .andExpect(status().isForbidden());
+
+        // 带上 token 后正常放行
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"访客\",\"content\":\"公开留言\"}")
+                        .cookie(csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfCookie.getValue()))
+                .andExpect(status().isOk());
+    }
+}

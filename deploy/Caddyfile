@@ -1,0 +1,46 @@
+# Caddy 反向代理 + 自动 HTTPS（推荐方案，证书申请与续期全自动）
+#
+# 用法：
+#   1. 把 your-domain.com 换成真实域名（共两处）
+#   2. 放到服务器 /etc/caddy/Caddyfile
+#   3. systemctl reload caddy
+#
+# 前提：域名已解析到本服务器，防火墙放行 80/443（80 用于证书签发验证）。
+# 注意：真实的客户端 IP 依赖 Caddy 自动附带的 X-Forwarded-For 头；
+#       后端默认已按 NATIVE 解析该头，无需额外设置。
+
+your-domain.com {
+	encode gzip
+
+	# 基础安全响应头
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# 强制浏览器此后只走 HTTPS（含子域），两年有效期滚动续期
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		# SPA 的 CSP：脚本只许本站；样式放行内联（Element Plus 动态样式），
+		# 图片/媒体放行 https 外链（外链配图、背景素材），连接只许同源 API
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; media-src 'self' https:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	}
+
+	# API 反代到后端：blog-hd 只监听本机 8080，不直接暴露公网
+	handle /api/* {
+		reverse_proxy localhost:8080
+	}
+
+	# 管理后台（blog-ht/dist）：handle_path 自动剥掉 /admin 前缀后落盘
+	handle_path /admin/* {
+		root * /var/www/blog-ht
+		try_files {path} /index.html
+		file_server
+	}
+	# 裸 /admin 也回落到后台首页
+	redir /admin /admin/ permanent
+
+	# 其余路径走前端静态文件（SPA）：vue-router history 模式，未命中回落 index.html
+	handle {
+		root * /var/www/blog-qd
+		try_files {path} /index.html
+		file_server
+	}
+}

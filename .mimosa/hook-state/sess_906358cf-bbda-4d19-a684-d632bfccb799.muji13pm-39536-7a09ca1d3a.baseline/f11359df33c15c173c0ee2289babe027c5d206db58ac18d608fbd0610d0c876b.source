@@ -1,0 +1,27 @@
+package com.example.bloghd.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/**
+ * 背景视频等大文件素材放应用目录 data/assets，不打包进 jar，经 /api/assets/** 提供。
+ * 目录与上传落盘（AssetStorage）共用 blog.assets.dir 一份配置，改一处两边同步。
+ */
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    private final String assetsDir;
+
+    public WebConfig(@Value("${blog.assets.dir:data/assets}") String assetsDir) {
+        this.assetsDir = assetsDir.endsWith("/") ? assetsDir : assetsDir + "/";
+    }
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/api/assets/**")
+                .addResourceLocations("file:" + assetsDir)
+                .setCachePeriod(86400);
+    }
+}

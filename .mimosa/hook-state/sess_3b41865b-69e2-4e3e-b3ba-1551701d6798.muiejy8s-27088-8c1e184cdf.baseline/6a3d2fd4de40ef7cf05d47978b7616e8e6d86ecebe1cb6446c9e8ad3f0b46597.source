@@ -1,0 +1,13 @@
+package com.example.bloghd.dto;
+
+import java.util.Map;
+
+/**
+ * 各页面背景素材，值来自 site_config；键缺失时字段为 null，前端回落本地素材。
+ * 页面键与存储键的映射见 PageBackgrounds（home 沿用旧键 hero_image / hero_video）。
+ */
+public record SiteAssets(Map<String, PageAssets> backgrounds) {
+
+    public record PageAssets(String image, String video) {
+    }
+}

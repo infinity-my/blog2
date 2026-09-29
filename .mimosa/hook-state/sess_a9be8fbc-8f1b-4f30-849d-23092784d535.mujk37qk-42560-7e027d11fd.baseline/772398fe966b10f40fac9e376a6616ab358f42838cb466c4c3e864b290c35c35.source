@@ -1,0 +1,25 @@
+package com.example.bloghd.dto;
+
+import java.util.List;
+
+/**
+ * 公开列表接口的翻页封装：items 是当前页，total 是过滤条件下的总条数，
+ * 前端用 items.length 与 total 比较判断还有没有下一页。
+ */
+public record PageView<T>(List<T> items, long total, long page, long size) {
+
+    /** 单页条数上限：clamp 到它之后，客户端再大的 size 也只会取到这么多行 */
+    public static final long MAX_SIZE = 100;
+
+    public static <T> PageView<T> of(List<T> items, long total, long page, long size) {
+        return new PageView<>(items, total, page, size);
+    }
+
+    public static long clampPage(long page) {
+        return Math.max(1, page);
+    }
+
+    public static long clampSize(long size) {
+        return Math.max(1, Math.min(MAX_SIZE, size));
+    }
+}

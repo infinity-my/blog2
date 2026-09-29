@@ -1,0 +1,130 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import com.example.bloghd.security.AuthException;
+import com.example.bloghd.security.AuthPrincipal;
+import com.example.bloghd.security.CurrentUser;
+import com.example.bloghd.security.LoginRateLimiter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/**
+ * 博主后台的登录态：账号存 admin_account 表（初始账号由 AdminAccountSeeder 按配置种入，
+ * 增删改走 /api/admin/accounts），会话机制与访客一致（HttpSession + CSRF），但角色是
+ * ROLE_ADMIN，/api/admin/** 的接口只认这个角色。
+ */
+@RestController
+@RequestMapping("/api/admin")
+public class AdminAuthController {
+
+    /** 账号不存在/已停用时也落到它上面比对，耗时与真比对一致，不泄露「用户名存不存在」 */
+    private static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
+    private final AdminAccountMapper adminAccountMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final SecurityContextRepository securityContextRepository;
+    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
+    private final LoginRateLimiter rateLimiter;
+    private final CurrentUser currentUser;
+
+    public AdminAuthController(AdminAccountMapper adminAccountMapper,
+                               PasswordEncoder passwordEncoder,
+                               SecurityContextRepository securityContextRepository,
+                               SessionAuthenticationStrategy sessionAuthenticationStrategy,
+                               LoginRateLimiter rateLimiter,
+                               CurrentUser currentUser) {
+        this.adminAccountMapper = adminAccountMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.securityContextRepository = securityContextRepository;
+        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
+        this.rateLimiter = rateLimiter;
+        this.currentUser = currentUser;
+    }
+
+    @PostMapping("/login")
+    public AdminUserView login(@RequestBody LoginForm form,
+                               HttpServletRequest request,
+                               HttpServletResponse response) {
+        String username = form.username() == null ? "" : form.username().trim();
+        String password = form.password() == null ? "" : form.password();
+        // 限流身份用固定前缀与访客邮箱隔开
+        String identity = "admin:" + username;
+        String ip = request.getRemoteAddr();
+        rateLimiter.checkOrThrow(identity, ip);
+
+        AdminAccount account = adminAccountMapper.selectOne(Wrappers.<AdminAccount>lambdaQuery()
+                .eq(AdminAccount::getUsername, username));
+        boolean matches = passwordEncoder.matches(password,
+                account != null && Boolean.TRUE.equals(account.getEnabled())
+                        ? account.getPasswordHash()
+                        : DUMMY_PASSWORD_HASH);
+        if (!matches) {
+            rateLimiter.recordFailure(identity, ip);
+            throw new AuthException(HttpStatus.UNAUTHORIZED, "BAD_CREDENTIALS", "用户名或密码不对");
+        }
+        rateLimiter.reset(identity, ip);
+
+        AuthPrincipal principal = new AuthPrincipal(account.getId(), account.getUsername(),
+                account.getDisplayName());
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        // 与访客登录同一套会话固定防护
+        sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
+        return new AdminUserView(principal.name());
+    }
+
+    @GetMapping("/me")
+    public AdminUserView me() {
+        return new AdminUserView(currentUser.require().name());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
+        return ResponseEntity.noContent().build();
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record LoginForm(String username, String password) {
+    }
+
+    public record AdminUserView(String name) {
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

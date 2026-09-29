@@ -1,0 +1,21 @@
+package com.example.bloghd.dto;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/** 文章元数据（不含正文），归档/列表类接口的返回体；comments 由评论表实时统计 */
+public record PostSummary(
+        Long id,
+        String title,
+        String excerpt,
+        LocalDate date,
+        String category,
+        List<String> tags,
+        Integer views,
+        Integer comments) {
+
+    public static PostSummary from(com.example.bloghd.entity.Article a, int comments) {
+        return new PostSummary(a.getId(), a.getTitle(), a.getExcerpt(), a.getPublishDate(),
+                a.getCategory(), a.getTags(), a.getViews(), comments);
+    }
+}

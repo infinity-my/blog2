@@ -1,0 +1,26 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 访客账号。表名避开 user —— 它在 H2 保留字表里，裸写会让整份 schema 初始化在第一句就中断 */
+@Data
+@TableName("app_user")
+public class AppUser {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String email;
+
+    private String name;
+
+    /** BCrypt 哈希，明文密码不落库 */
+    private String passwordHash;
+
+    private LocalDateTime createdAt;
+}

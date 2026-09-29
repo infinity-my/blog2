@@ -1,0 +1,26 @@
+package com.example.bloghd.support;
+
+import java.util.List;
+
+/**
+ * 页面背景的键规则：home 沿用上线时的旧键 hero_image / hero_video（免数据迁移），
+ * 其余页面用 bg_<page>_image / bg_<page>_video。可配置页面以这里的名单为准，
+ * 前后台的卡片清单与接口白名单都跟着它走，加减页面只改这一处。
+ */
+public final class PageBackgrounds {
+
+    public static final List<String> PAGES = List.of(
+            "home", "about", "messages", "essays", "album", "archives", "categories", "projects",
+            "post", "project");
+
+    private PageBackgrounds() {
+    }
+
+    /** kind 取 image / video */
+    public static String storageKey(String page, String kind) {
+        if ("home".equals(page)) {
+            return "image".equals(kind) ? "hero_image" : "hero_video";
+        }
+        return "bg_" + page + "_" + kind;
+    }
+}

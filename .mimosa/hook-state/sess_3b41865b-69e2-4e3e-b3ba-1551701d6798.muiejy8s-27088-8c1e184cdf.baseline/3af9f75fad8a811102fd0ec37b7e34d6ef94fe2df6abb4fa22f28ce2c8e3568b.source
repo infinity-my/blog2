@@ -1,0 +1,21 @@
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+
+import './assets/main.css'
+import { initTheme } from './composables/useTheme'
+
+import App from './App.vue'
+import router from './router'
+import { useUserStore } from './stores/user'
+
+initTheme()
+
+const app = createApp(App)
+
+app.use(createPinia())
+app.use(router)
+
+// 恢复登录态：不 await，先让页面画出来，组件读 userStore.ready 自行等待结果
+useUserStore().restore()
+
+app.mount('#app')

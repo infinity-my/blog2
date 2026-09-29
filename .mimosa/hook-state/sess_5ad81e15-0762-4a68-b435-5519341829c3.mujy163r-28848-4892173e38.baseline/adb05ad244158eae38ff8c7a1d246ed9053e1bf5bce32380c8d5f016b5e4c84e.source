@@ -1,0 +1,91 @@
+package com.example.bloghd.security;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
+/**
+ * 简历解锁的内存限流。口令是全站共用的一把，没有「身份」可锁，只能按出口 IP 挡：
+ * 滑动窗口 15 分钟内同一 IP 失败 5 次即拒绝，解锁成功清空该 IP 的计数。
+ * 单实例博客够用；进程重启计数清零，攻击窗口随之重来。
+ */
+@Component
+public class ResumeGateRateLimiter {
+
+    static final int MAX_FAILURES_PER_IP = 5;
+    private static final long WINDOW_MILLIS = 15 * 60 * 1000L;
+    /** 失败表的量级保险丝：表里挂这么多 IP 时先清一轮过期窗口，清完仍满就整体清空重计 */
+    private static final int MAX_TRACKED_IPS = 10_000;
+
+    private final Map<String, Deque<Long>> failuresByIp = new HashMap<>();
+
+    /** 超限抛 429 TOO_MANY_ATTEMPTS，文案带剩余等待分钟数 */
+    public synchronized void checkOrThrow(String ip) {
+        long now = System.currentTimeMillis();
+        int waitMinutes = blockedMinutes(failuresByIp, ip, now);
+        if (waitMinutes > 0) {
+            throw new AuthException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_ATTEMPTS",
+                    "尝试太频繁了，请 " + waitMinutes + " 分钟后再试");
+        }
+    }
+
+    public synchronized void recordFailure(String ip) {
+        long now = System.currentTimeMillis();
+        sweepIfBloated(now);
+        failuresByIp.computeIfAbsent(ip, k -> new ArrayDeque<>()).addLast(now);
+    }
+
+    public synchronized void reset(String ip) {
+        failuresByIp.remove(ip);
+    }
+
+    /** 未超限返回 -1；超限返回按窗口内最早一次失败算出的剩余等待分钟数（至少 1） */
+    private static int blockedMinutes(Map<String, Deque<Long>> failures, String key, long now) {
+        Deque<Long> window = failures.get(key);
+        if (window == null) {
+            return -1;
+        }
+        prune(window, now);
+        if (window.isEmpty()) {
+            failures.remove(key);
+            return -1;
+        }
+        if (window.size() < MAX_FAILURES_PER_IP) {
+            return -1;
+        }
+        long remainMillis = window.peekFirst() + WINDOW_MILLIS - now;
+        return Math.max(1, (int) Math.ceil(remainMillis / 60000.0));
+    }
+
+    private static void prune(Deque<Long> window, long now) {
+        while (!window.isEmpty() && window.peekFirst() + WINDOW_MILLIS <= now) {
+            window.pollFirst();
+        }
+    }
+
+    /**
+     * 计数被清只会放宽限制不会收紧，宁可整体重来也不能让失败表无界增长；
+     * 真涨到保险丝值说明正被分布式刷，清空等于给防线重置一个起点。
+     */
+    private void sweepIfBloated(long now) {
+        if (failuresByIp.size() < MAX_TRACKED_IPS) {
+            return;
+        }
+        Iterator<Map.Entry<String, Deque<Long>>> entries = failuresByIp.entrySet().iterator();
+        while (entries.hasNext()) {
+            Deque<Long> window = entries.next().getValue();
+            prune(window, now);
+            if (window.isEmpty()) {
+                entries.remove();
+            }
+        }
+        if (failuresByIp.size() >= MAX_TRACKED_IPS) {
+            failuresByIp.clear();
+        }
+    }
+}

@@ -1,0 +1,305 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.time.LocalDateTime;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class MessageControllerTest {
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private MessageMapper messageMapper;
+
+    @Autowired
+    private MessageReplyMapper messageReplyMapper;
+
+    @Autowired
+    private AppUserMapper appUserMapper;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        messageReplyMapper.delete(null);
+        messageMapper.delete(null);
+        appUserMapper.delete(null);
+        csrfCookie = mockMvc.perform(get("/api/posts")).andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    /** 注册并登录，返回会话；用于验证「登录后发言身份由服务端决定」 */
+    private MockHttpSession registerAndLogin(String email, String name) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"name\":\"%s\",\"password\":\"secret123\"}".formatted(email, name))
+                        .cookie(csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfCookie.getValue()))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    private AppUser onlyAccount() {
+        return appUserMapper.selectList(null).getFirst();
+    }
+
+    private Long newMessage(String name, String content, LocalDateTime createdAt, int likes) {
+        Message m = new Message();
+        m.setName(name);
+        m.setContent(content);
+        m.setLikes(likes);
+        m.setCreatedAt(createdAt);
+        messageMapper.insert(m);
+        return m.getId();
+    }
+
+    private Long newReply(Long messageId, String name, String content, LocalDateTime createdAt, boolean author) {
+        MessageReply r = new MessageReply();
+        r.setMessageId(messageId);
+        r.setName(name);
+        r.setContent(content);
+        r.setLikes(0);
+        r.setCreatedAt(createdAt);
+        r.setIsAuthor(author);
+        messageReplyMapper.insert(r);
+        return r.getId();
+    }
+
+    @Test
+    void createTrimsNameAndDefaultsAnonymous() throws Exception {
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"   \",\"content\":\"  hello  \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("匿名"))
+                .andExpect(jsonPath("$.content").value("hello"))
+                .andExpect(jsonPath("$.likes").value(0))
+                .andExpect(jsonPath("$.replies.length()").value(0))
+                .andExpect(jsonPath("$.userId").value(nullValue()));
+    }
+
+    @Test
+    void createRejectsBlankContent() throws Exception {
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"n\",\"content\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRejectsOverlongContent() throws Exception {
+        String body = "{\"name\":\"n\",\"content\":\"" + "a".repeat(201) + "\"}";
+        mockMvc.perform(post("/api/messages").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listReturnsNewestFirstWithRepliesAscending() throws Exception {
+        Long older = newMessage("older", "first", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+        Long newer = newMessage("newer", "second", LocalDateTime.of(2026, 9, 2, 8, 0), 5);
+        newReply(older, "b", "late", LocalDateTime.of(2026, 9, 1, 12, 0), false);
+        newReply(older, "a", "early", LocalDateTime.of(2026, 9, 1, 9, 0), true);
+
+        mockMvc.perform(get("/api/messages"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(newer))
+                .andExpect(jsonPath("$[0].replies.length()").value(0))
+                .andExpect(jsonPath("$[1].id").value(older))
+                .andExpect(jsonPath("$[1].time").value("2026-09-01 08:00"))
+                .andExpect(jsonPath("$[1].replies.length()").value(2))
+                .andExpect(jsonPath("$[1].replies[0].content").value("early"))
+                .andExpect(jsonPath("$[1].replies[0].author").value(true))
+                .andExpect(jsonPath("$[1].replies[1].content").value("late"));
+    }
+
+    @Test
+    void likeIncrementsAndUnlikeFloorsAtZero() throws Exception {
+        Long id = newMessage("n", "c", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+
+        mockMvc.perform(post("/api/messages/" + id + "/like")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"liked\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likes").value(1));
+
+        mockMvc.perform(post("/api/messages/" + id + "/like")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"liked\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likes").value(0));
+
+        // 重复取消不应把计数压成负数
+        mockMvc.perform(post("/api/messages/" + id + "/like")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"liked\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likes").value(0));
+    }
+
+    @Test
+    void likeMissingMessageReturns404() throws Exception {
+        mockMvc.perform(post("/api/messages/9999/like")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"liked\":true}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void replyKeepsReplyToAndIgnoresClientAuthorFlag() throws Exception {
+        Long id = newMessage("n", "c", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+
+        mockMvc.perform(post("/api/messages/" + id + "/replies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"访客\",\"content\":\"  hi  \",\"replyTo\":\"博主\",\"author\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("hi"))
+                .andExpect(jsonPath("$.replyTo").value("博主"))
+                .andExpect(jsonPath("$.author").value(false))
+                .andExpect(jsonPath("$.likes").value(0));
+
+        assertThat(messageReplyMapper.selectList(null)).hasSize(1);
+    }
+
+    @Test
+    void replyToMissingMessageReturns404() throws Exception {
+        mockMvc.perform(post("/api/messages/9999/replies")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"n\",\"content\":\"c\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void replyLikeIncrements() throws Exception {
+        Long messageId = newMessage("n", "c", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+        MessageReply reply = new MessageReply();
+        reply.setMessageId(messageId);
+        reply.setName("r");
+        reply.setContent("r");
+        reply.setLikes(3);
+        reply.setCreatedAt(LocalDateTime.of(2026, 9, 1, 9, 0));
+        reply.setIsAuthor(false);
+        messageReplyMapper.insert(reply);
+
+        mockMvc.perform(post("/api/messages/replies/" + reply.getId() + "/like")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"liked\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likes").value(4));
+    }
+
+    /** 改造前这里会把 1001 当自己的身份落库，等于任何人可冒充他人发言 */
+    @Test
+    void createIgnoresClientSuppliedUserId() throws Exception {
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"冒充者\",\"content\":\"我来冒充别人\",\"userId\":1001}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(nullValue()))
+                .andExpect(jsonPath("$.name").value("冒充者"));
+
+        assertThat(messageMapper.selectList(null).getFirst().getUserId()).isNull();
+    }
+
+    @Test
+    void replyIgnoresClientSuppliedUserId() throws Exception {
+        Long messageId = newMessage("楼主", "hello", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+
+        mockMvc.perform(post("/api/messages/" + messageId + "/replies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"冒充者\",\"content\":\"冒充回复\",\"userId\":1001}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(nullValue()));
+
+        assertThat(messageReplyMapper.selectList(null).getFirst().getUserId()).isNull();
+    }
+
+    @Test
+    void guestKeepsOwnNickname() throws Exception {
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  路过的访客  \",\"content\":\"你好\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("路过的访客"))
+                .andExpect(jsonPath("$.userId").value(nullValue()));
+    }
+
+    @Test
+    void authenticatedCreateUsesSessionIdentityAndIgnoresClientFields() throws Exception {
+        MockHttpSession session = registerAndLogin("owner@example.com", "小原");
+        AppUser account = onlyAccount();
+
+        // 请求体同时伪造了别人的昵称和 id，两者都必须被丢弃
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"不是我的名字\",\"content\":\"我的留言\",\"userId\":9999}")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("小原"))
+                .andExpect(jsonPath("$.userId").value(account.getId()));
+    }
+
+    @Test
+    void authenticatedAnonymousCreateDetachesIdentity() throws Exception {
+        MockHttpSession session = registerAndLogin("owner@example.com", "小原");
+
+        mockMvc.perform(post("/api/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"匿名说一句\",\"anonymous\":true}")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("匿名"))
+                .andExpect(jsonPath("$.userId").value(nullValue()));
+    }
+
+    @Test
+    void authenticatedReplyUsesSessionIdentity() throws Exception {
+        Long messageId = newMessage("楼主", "hello", LocalDateTime.of(2026, 9, 1, 8, 0), 0);
+        MockHttpSession session = registerAndLogin("owner@example.com", "小原");
+        AppUser account = onlyAccount();
+
+        mockMvc.perform(post("/api/messages/" + messageId + "/replies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"冒充\",\"content\":\"我的回复\",\"replyTo\":\"楼主\"}")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("小原"))
+                .andExpect(jsonPath("$.userId").value(account.getId()));
+
+        // 匿名回复同样不挂身份
+        mockMvc.perform(post("/api/messages/" + messageId + "/replies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"匿名回复\",\"anonymous\":true}")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("匿名"))
+                .andExpect(jsonPath("$.userId").value(nullValue()));
+    }
+}

@@ -1,0 +1,17 @@
+package com.example.bloghd.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.bloghd.dto.ArticleCommentCount;
+import com.example.bloghd.entity.Comment;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
+
+@Mapper
+public interface CommentMapper extends BaseMapper<Comment> {
+
+    /** 文章列表的评论数：GROUP BY 一次聚合，避免把整张评论表拉回内存数行 */
+    @Select("SELECT article_id, COUNT(*) AS cnt FROM comment GROUP BY article_id")
+    List<ArticleCommentCount> countByArticle();
+}

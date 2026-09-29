@@ -1,0 +1,124 @@
+// 纯前端模拟数据：留言板，接入后端接口后用 API 返回替换即可
+// replies 为该条留言下的回复列表（抖音式子评论），author: true 表示博主回复，
+// time 需与随笔页同处 2026 时间线
+export const mockMessages = [
+  {
+    id: 1,
+    name: '路过的小猫',
+    time: '2026-09-15 09:12',
+    content: '喵。',
+    likes: 56,
+    replies: [
+      { id: 101, name: '博主', author: true, time: '2026-09-15 10:03', content: '喵喵。', likes: 24 },
+      { id: 102, name: 'Momo', time: '2026-09-15 10:41', content: '猫猫好可爱！头像给你配一个？', likes: 9 },
+      { id: 103, name: '深夜写代码的', time: '2026-09-15 11:20', content: '它甚至想抢我的工位。', likes: 6 },
+    ],
+  },
+  {
+    id: 2,
+    name: '南山打工人',
+    time: '2026-09-13 21:47',
+    content: '同在深圳，周末图书馆偶遇过你一次，没好意思打招呼，就……你好呀！',
+    likes: 42,
+    replies: [
+      { id: 201, name: '博主', author: true, time: '2026-09-13 22:15', content: '下次直接打招呼！周末我基本都在。', likes: 18 },
+      { id: 202, name: '栗子', time: '2026-09-14 09:02', content: '偶遇文学哈哈哈哈。', likes: 7 },
+    ],
+  },
+  {
+    id: 3,
+    name: '阿澈',
+    time: '2026-09-10 08:30',
+    content: '博客周年快乐！从 jQuery 时代追到现在，UI 越来越好看了。',
+    likes: 34,
+    replies: [
+      { id: 301, name: '博主', author: true, time: '2026-09-10 09:02', content: '谢谢老朋友，一路见证。', likes: 12 },
+    ],
+  },
+  {
+    id: 4,
+    name: 'Momo',
+    time: '2026-09-08 23:05',
+    content: '昨晚刷到你的事件循环那篇，配图太形象了，已经转发给全组了哈哈。',
+    likes: 31,
+  },
+  {
+    id: 5,
+    name: 'Old xu',
+    time: '2026-09-05 19:26',
+    content: '从归档页一路翻到第一篇文章，见证一个博客慢慢长大，持续更新呀。',
+    likes: 27,
+  },
+  {
+    id: 6,
+    name: '清风',
+    time: '2026-09-01 14:18',
+    content: '博客的玻璃质感好舒服，手机上也很顺滑。留言板开张，来踩一脚！',
+    likes: 23,
+  },
+  {
+    id: 7,
+    name: '深夜写代码的',
+    time: '2026-08-28 02:11',
+    content: '凌晨两点还在调 blur 参数的除了你还有我，找到组织了。',
+    likes: 18,
+    replies: [
+      { id: 701, name: '博主', author: true, time: '2026-08-28 08:40', content: '抱抱，早点睡。', likes: 15 },
+    ],
+  },
+  {
+    id: 8,
+    name: '栗子',
+    time: '2026-08-24 12:52',
+    content: '随笔页的天气图标可爱到了，特别是那个疲惫的月亮。',
+    likes: 15,
+    replies: [
+      { id: 801, name: '博主', author: true, time: '2026-08-24 13:30', content: '那是整个页面我画得最认真的一个图标。', likes: 10 },
+      { id: 802, name: '清风', time: '2026-08-24 14:05', content: '同款可爱，雨天那张配图也很绝。', likes: 4 },
+    ],
+  },
+  {
+    id: 9,
+    name: '折耳根',
+    time: '2026-08-20 16:44',
+    content: '求一篇 WebAssembly 入门，最近想试着把项目里的热路径迁过去。',
+    likes: 12,
+    replies: [
+      { id: 901, name: '博主', author: true, time: '2026-08-20 20:07', content: '安排上了，本月草稿箱第一篇。', likes: 8 },
+      { id: 902, name: '雷达', time: '2026-08-20 21:33', content: '蹲一个同款教程！', likes: 5 },
+      { id: 903, name: '折耳根', time: '2026-08-20 21:47', content: '等到了我来写实践反馈。', likes: 3 },
+    ],
+  },
+  {
+    id: 10,
+    name: '一只部署侠',
+    time: '2026-08-15 11:09',
+    content: '项目页的卡片排版是自己画的吗？想抄个作业。',
+    likes: 11,
+  },
+  {
+    id: 11,
+    name: '桐桐',
+    time: '2026-08-11 20:33',
+    content: '相册页的瀑布流好好看，用的什么方案？',
+    likes: 9,
+    replies: [
+      { id: 1101, name: '博主', author: true, time: '2026-08-11 21:10', content: '纯 CSS columns，回头写篇小记。', likes: 6 },
+    ],
+  },
+  {
+    id: 12,
+    name: '雷达',
+    time: '2026-08-06 07:55',
+    content: '打卡，每周都来看看有没有更新。',
+    likes: 8,
+  },
+  {
+    id: 13,
+    name: '小原',
+    userId: 1001,
+    time: '2026-08-01 10:00',
+    content: '留言板开张！欢迎大家随便聊，看到都会回。',
+    likes: 21,
+  },
+]

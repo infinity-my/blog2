@@ -1,0 +1,37 @@
+import { ref } from 'vue'
+import { defineStore } from 'pinia'
+import { fetchSite } from '../api'
+
+// 站点背景配置（各页面 image/video）：多页共用。首次拉取期间调用方等 promise，
+// 拿不到时 backgrounds 保持 null、由调用方回落本地素材；已有缓存时立即返回旧值，
+// 并按 30s 节流在后台静默再校验，后台改完配置前台无需刷新即可生效
+export const useSiteStore = defineStore('site', () => {
+  const backgrounds = ref(null)
+  let pending = null
+  let fetchedAt = 0
+
+  function ensure() {
+    if (backgrounds.value) {
+      if (Date.now() - fetchedAt > 30_000) {
+        fetchedAt = Date.now()
+        fetchSite()
+          .then((site) => (backgrounds.value = site.backgrounds ?? {}))
+          .catch(() => {})
+      }
+      return Promise.resolve(backgrounds.value)
+    }
+    pending ??= fetchSite()
+      .then((site) => {
+        backgrounds.value = site.backgrounds ?? {}
+        fetchedAt = Date.now()
+        return backgrounds.value
+      })
+      .catch(() => {
+        pending = null
+        return null
+      })
+    return pending
+  }
+
+  return { backgrounds, ensure }
+})

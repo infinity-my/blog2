@@ -1,0 +1,19 @@
+package com.example.bloghd.support;
+
+/**
+ * 会进公共页面 <a :href> / <img :src> / 背景 url() 的地址统一只放行两类：
+ * 站内上传素材（/api/assets/ 前缀）与 https:// 外链。
+ * 其余 scheme（javascript:、data:、http:// 等）在入库前就拦下，
+ * 管理端写进去的值才不会变成公共页面的注入点。
+ */
+public final class LinkPolicy {
+
+    public static final String ASSET_PREFIX = "/api/assets/";
+
+    private LinkPolicy() {
+    }
+
+    public static boolean allowed(String url) {
+        return url.startsWith(ASSET_PREFIX) || url.startsWith("https://");
+    }
+}

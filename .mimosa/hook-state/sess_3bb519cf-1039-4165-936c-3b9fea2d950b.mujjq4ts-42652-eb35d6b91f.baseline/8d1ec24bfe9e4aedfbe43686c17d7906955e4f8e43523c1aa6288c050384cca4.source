@@ -1,0 +1,172 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.security.LoginRateLimiter;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class CommentControllerTest {
+
+    private static final String EMAIL = "commenter@example.com";
+    private static final String NAME = "评论访客";
+    // 测试口令运行期随机生成：源码不出现凭据字面量
+    private static final String PASSWORD = "pwd-" + UUID.randomUUID().toString().substring(0, 8);
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private ArticleMapper articleMapper;
+
+    @Autowired
+    private CommentMapper commentMapper;
+
+    @Autowired
+    private AppUserMapper appUserMapper;
+
+    @Autowired
+    private LoginRateLimiter rateLimiter;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        commentMapper.delete(null);
+        articleMapper.delete(null);
+        appUserMapper.delete(null);
+        // 限流器是单例，失败/成功记录会跨测试留存；EMAIL 被多个测试复用，先清干净保证确定性
+        rateLimiter.reset(EMAIL, "127.0.0.1");
+        csrfCookie = mockMvc.perform(get("/api/posts")).andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    private MockHttpServletRequestBuilder csrf(MockHttpServletRequestBuilder builder) {
+        return builder.cookie(csrfCookie).header("X-XSRF-TOKEN", csrfCookie.getValue());
+    }
+
+    private MockHttpServletRequestBuilder jsonPost(String path, String body) {
+        return csrf(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private long insertArticle(String title) {
+        Article a = new Article();
+        a.setTitle(title);
+        a.setCategory("前端");
+        a.setPublishDate(LocalDate.of(2026, 9, 1));
+        a.setViews(0);
+        articleMapper.insert(a);
+        return a.getId();
+    }
+
+    /** 注册一个访客并返回其会话（注册即登录），后续发评论直接挂这个会话 */
+    private MockHttpSession visitorSession() throws Exception {
+        String body = "{\"email\":\"%s\",\"name\":\"%s\",\"password\":\"%s\"}".formatted(EMAIL, NAME, PASSWORD);
+        MvcResult result = mockMvc.perform(jsonPost("/api/auth/register", body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    @Test
+    void listRejectsUnknownArticle() throws Exception {
+        mockMvc.perform(get("/api/posts/999/comments"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void createRequiresLogin() throws Exception {
+        long articleId = insertArticle("无登录评论的文章");
+
+        mockMvc.perform(jsonPost("/api/posts/" + articleId + "/comments", "{\"content\":\"想评论\"}"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(commentMapper.selectList(null)).isEmpty();
+    }
+
+    @Test
+    void createValidatesContent() throws Exception {
+        long articleId = insertArticle("校验评论的文章");
+        MockHttpSession session = visitorSession();
+
+        mockMvc.perform(jsonPost("/api/posts/" + articleId + "/comments", "{\"content\":\"   \"}").session(session))
+                .andExpect(status().isBadRequest());
+
+        // 201 个字符，刚好越过 200 的上限
+        String tooLong = "评".repeat(201);
+        mockMvc.perform(jsonPost("/api/posts/" + articleId + "/comments",
+                        "{\"content\":\"" + tooLong + "\"}").session(session))
+                .andExpect(status().isBadRequest());
+
+        assertThat(commentMapper.selectList(null)).isEmpty();
+    }
+
+    @Test
+    void createListRoundtripAsLoggedInVisitor() throws Exception {
+        long articleId = insertArticle("被评论的文章");
+        MockHttpSession session = visitorSession();
+
+        MvcResult created = mockMvc.perform(jsonPost("/api/posts/" + articleId + "/comments",
+                        "{\"content\":\" 学到了，感谢分享！ \"}").session(session))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value(NAME))
+                .andExpect(jsonPath("$.content").value("学到了，感谢分享！"))
+                .andExpect(jsonPath("$.time").value(org.hamcrest.Matchers.matchesPattern("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}")))
+                .andReturn();
+        long commentId = Long.parseLong(created.getResponse().getContentAsString()
+                .replaceAll(".*\"id\":(\\d+).*", "$1"));
+        assertThat(commentId).isPositive();
+
+        // 列表公开可读，时间正序；发言人取账号昵称，不采信请求体
+        mockMvc.perform(get("/api/posts/" + articleId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].name").value(NAME))
+                .andExpect(jsonPath("$[0].userId").isNumber())
+                .andExpect(jsonPath("$[0].content").value("学到了，感谢分享！"));
+
+        // 挂上「匿名姓名」请求体也改不了身份
+        mockMvc.perform(jsonPost("/api/posts/" + articleId + "/comments",
+                        "{\"content\":\"第二条\",\"name\":\"冒名\"}").session(session))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value(NAME));
+    }
+
+    @Test
+    void listIsPublicAndEmptyForFreshArticle() throws Exception {
+        long articleId = insertArticle("没评论的文章");
+
+        mockMvc.perform(get("/api/posts/" + articleId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+}

@@ -1,0 +1,225 @@
+// 站点数据接口：开发环境由 vite 代理转发到 blog-hd 后端（见 vite.config.js 的 server.proxy）
+// 这也是全站唯一的请求封装：POST 自动带 CSRF 头，错误统一转成带 code / message / status 的 Error。
+export const BASE = '/api'
+
+const CSRF_HEADER = 'X-XSRF-TOKEN'
+const FALLBACK_MESSAGE = '出错了，稍后再试一次。'
+
+function readCsrfCookie() {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+/**
+ * 后端在任意响应上都会下发 CSRF cookie，但直接落在 /login 这类不做数据请求的页面上时
+ * 一个请求都还没发生，此时提交会被 CSRF 拦成 403。这里补一次轻量 GET 让 cookie 就位。
+ */
+async function csrfToken() {
+  const existing = readCsrfCookie()
+  if (existing) return existing
+  try {
+    await fetch(`${BASE}/stats`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  } catch {
+    // 网络不通时交给后续请求自己报错，这里不掩盖真实原因
+  }
+  return readCsrfCookie()
+}
+
+async function toError(response) {
+  let code = 'UNKNOWN_ERROR'
+  let message = FALLBACK_MESSAGE
+  try {
+    const body = await response.json()
+    if (body?.code) code = body.code
+    if (body?.message) message = body.message
+  } catch {
+    // 404（notFound().build()）与过滤链直接拒绝的 401 都没有响应体
+  }
+  if (code === 'UNKNOWN_ERROR' && response.status === 401) {
+    code = 'NOT_AUTHENTICATED'
+    message = '还没登录。'
+  }
+  const error = new Error(message)
+  error.status = response.status
+  error.code = code
+  return error
+}
+
+// 账号与简历口令接口的 401 各有专属语义（未登录是常态 / 口令不对），
+// 由调用方就地消化，不当作「会话过期」触发全局处理
+function isLocallyHandledAuthPath(path) {
+  return path.startsWith('/auth/') || path.startsWith('/resume/')
+}
+
+async function send(path, options) {
+  let response
+  try {
+    response = await fetch(`${BASE}${path}`, { credentials: 'same-origin', ...options })
+  } catch {
+    const error = new Error('网络连接失败，请稍后再试。')
+    error.status = 0
+    error.code = 'NETWORK_ERROR'
+    throw error
+  }
+  if (!response.ok) {
+    const error = await toError(response)
+    // 会话在服务端到期/重启后失效：全局兜一次（通知 store 清登录态并引导重登），
+    // 各调用方只管按普通错误提示
+    if (error.status === 401 && !isLocallyHandledAuthPath(path)) {
+      window.dispatchEvent(new CustomEvent('api:unauthorized'))
+    }
+    throw error
+  }
+  return response.status === 204 ? null : response.json()
+}
+
+/**
+ * GET JSON；params 非空时拼成查询串
+ * @returns {Promise<any>}
+ */
+export async function request(path, params) {
+  const qs = params && Object.keys(params).length ? `?${new URLSearchParams(params)}` : ''
+  return send(path + qs, { headers: { Accept: 'application/json' } })
+}
+
+/**
+ * POST JSON；自动携带 CSRF 头（SameSite=Lax 之外的第二道防跨站）
+ * @returns {Promise<any>}
+ */
+export async function post(path, body) {
+  return send(path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: await csrfToken(),
+    },
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+/**
+ * 文章元数据列表（不含正文）
+ * @param {{ category?: string, order?: 'asc' | 'desc' }} [options]
+ * @returns {Promise<Array<{id:number,title:string,excerpt:string,date:string,category:string,tags:string[],views:number,comments:number}>>}
+ */
+export function fetchPosts(options = {}) {
+  const params = {}
+  if (options.category) params.category = options.category
+  if (options.order) params.order = options.order
+  return request('/posts', params)
+}
+
+/**
+ * 文章详情（含正文结构化块）；id 不存在时抛出 status=404 的错误
+ * @param {number|string} id
+ * @returns {Promise<{id:number,title:string,excerpt:string,date:string,category:string,tags:string[],views:number,comments:number,content:Array<{type:string}>}>}
+ */
+export function fetchPost(id) {
+  return request(`/posts/${id}`)
+}
+
+/**
+ * 近 N 天的写作动态计数（热力图）
+ * @param {number} [days=365]
+ * @returns {Promise<Record<string, number>>} 形如 { '2026-09-12': 4 }，缺省日期为 0
+ */
+export function fetchHeatmap(days = 365) {
+  return request('/heatmap', { days })
+}
+
+/**
+ * 站点统计（文章数/分类数/累计访问量，均来自数据库）
+ * @returns {Promise<{posts:number,categories:number,visits:number}>}
+ */
+export function fetchStats() {
+  return request('/stats')
+}
+
+/**
+ * 站点配置（首页背景图/视频等）；后端未配置时字段为 null，调用方需回落本地素材
+ * @returns {Promise<{heroImage:string|null,heroVideo:string|null}>}
+ */
+export function fetchSite() {
+  return request('/site')
+}
+
+/**
+ * 进站访问上报（当日 +1），返回最新累计统计
+ * @returns {Promise<{posts:number,categories:number,visits:number}>}
+ */
+export function recordVisit() {
+  return post('/stats/visit')
+}
+
+/**
+ * 留言列表（最新在前），每条带 replies 数组
+ * @returns {Promise<Array<{id:number,name:string,userId:number|null,time:string,content:string,likes:number,replies:Array}>>}
+ */
+export function fetchMessages() {
+  return request('/messages')
+}
+
+/**
+ * 发布留言
+ * @param {{ name?: string, content: string, userId?: number|null }} payload
+ * @returns {Promise<{id:number,name:string,userId:number|null,time:string,content:string,likes:number,replies:Array}>}
+ */
+export function postMessage(payload) {
+  return post('/messages', payload)
+}
+
+/**
+ * 点赞/取消点赞留言
+ * @param {number|string} id
+ * @param {boolean} liked true 点赞，false 取消
+ * @returns {Promise<{id:number,likes:number}>} 服务端最新计数
+ */
+export function likeMessage(id, liked) {
+  return post(`/messages/${id}/like`, { liked })
+}
+
+/**
+ * 回复某条留言
+ * @param {number|string} messageId
+ * @param {{ name?: string, content: string, replyTo?: string|null, userId?: number|null }} payload
+ * @returns {Promise<{id:number,name:string,userId:number|null,author:boolean,time:string,content:string,likes:number,replyTo:string|null}>}
+ */
+export function postReply(messageId, payload) {
+  return post(`/messages/${messageId}/replies`, payload)
+}
+
+/**
+ * 点赞/取消点赞回复
+ * @param {number|string} id
+ * @param {boolean} liked
+ * @returns {Promise<{id:number,likes:number}>}
+ */
+export function likeReply(id, liked) {
+  return post(`/messages/replies/${id}/like`, { liked })
+}
+
+/**
+ * 相册照片列表（拍摄时间倒序）
+ * @returns {Promise<Array<{id:number,src:string,width:number,height:number,title:string,date:string,location:string,shot:string,caption:string,tags:string[]}>>}
+ */
+export function fetchPhotos() {
+  return request('/album/photos')
+}
+
+/**
+ * 随笔列表（时间倒序）
+ * @returns {Promise<Array<{id:number,date:string,mood:string,location:string,text:string[],images:string[],tags:string[]}>>}
+ */
+export function fetchEssays() {
+  return request('/essays')
+}
+
+/**
+ * 简历解锁：口令由服务端校验，和登录态无关，登录与否都要过这一关
+ * @param {string} password
+ * @returns {Promise<{unlocked:boolean}>} 口令错误时抛出 status=401 的错误
+ */
+export function unlockResume(password) {
+  return post('/resume/unlock', { password })
+}

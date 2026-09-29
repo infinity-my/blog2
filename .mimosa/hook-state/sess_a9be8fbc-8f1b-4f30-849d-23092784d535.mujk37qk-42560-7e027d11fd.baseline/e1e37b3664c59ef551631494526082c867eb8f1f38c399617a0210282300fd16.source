@@ -1,0 +1,39 @@
+import { post, request } from './index'
+
+// 账号接口。登录态由服务端的 HttpOnly 会话 cookie 承载，前端拿不到也存不下任何凭证。
+// CSRF 注入与错误解析统一在 ./index 的请求封装里；失败抛出带 code / message 的 Error，
+// message 直接取自后端，可原样展示给用户。
+
+/**
+ * 当前登录身份；未登录时后端返回 401，抛出 code=NOT_AUTHENTICATED 的错误
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function fetchMe() {
+  return request('/auth/me')
+}
+
+/**
+ * 注册成功即登录；邮箱已被注册抛 code=EMAIL_TAKEN
+ * @param {{ email: string, name: string, password: string }} payload
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function register(payload) {
+  return post('/auth/register', payload)
+}
+
+/**
+ * 登录；邮箱或密码不对统一抛 code=BAD_CREDENTIALS，失败过多抛 code=TOO_MANY_ATTEMPTS
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function login(email, password) {
+  return post('/auth/login', { email, password })
+}
+
+export function logout() {
+  return post('/auth/logout')
+}
+
+/** 注销账号需要重新验证密码，密码不对时抛 code=WRONG_PASSWORD */
+export function deleteAccount(password) {
+  return post('/auth/delete', { password })
+}

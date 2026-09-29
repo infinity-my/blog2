@@ -1,0 +1,25 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.AlbumPhoto;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/** 相册照片视图，date 对应 shoot_date */
+public record PhotoView(
+        Long id,
+        String src,
+        Integer width,
+        Integer height,
+        String title,
+        LocalDate date,
+        String location,
+        String shot,
+        String caption,
+        List<String> tags) {
+
+    public static PhotoView from(AlbumPhoto p) {
+        return new PhotoView(p.getId(), p.getSrc(), p.getWidth(), p.getHeight(), p.getTitle(),
+                p.getShootDate(), p.getLocation(), p.getShot(), p.getCaption(), p.getTags());
+    }
+}

@@ -1,0 +1,52 @@
+package com.example.bloghd;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.bloghd.fixture.SampleArticle;
+import com.example.bloghd.fixture.SampleArticleMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.util.stream.IntStream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class MybatisPlusIntegrationTest {
+
+    @Autowired
+    private SampleArticleMapper sampleArticleMapper;
+
+    @Test
+    void insertAndSelectById() {
+        SampleArticle article = new SampleArticle();
+        article.setTitle("hello");
+        article.setContent("world");
+
+        sampleArticleMapper.insert(article);
+
+        assertThat(article.getId()).isNotNull();
+        SampleArticle loaded = sampleArticleMapper.selectById(article.getId());
+        assertThat(loaded.getTitle()).isEqualTo("hello");
+    }
+
+    @Test
+    void pageQueryUsesPaginationInterceptor() {
+        IntStream.rangeClosed(1, 15).forEach(i -> {
+            SampleArticle article = new SampleArticle();
+            article.setTitle("page-" + i);
+            article.setContent("content-" + i);
+            sampleArticleMapper.insert(article);
+        });
+
+        Page<SampleArticle> page = sampleArticleMapper.selectPage(
+                new Page<>(2, 10),
+                new LambdaQueryWrapper<SampleArticle>().likeRight(SampleArticle::getTitle, "page-"));
+
+        assertThat(page.getTotal()).isEqualTo(15);
+        assertThat(page.getRecords()).hasSize(5);
+    }
+}

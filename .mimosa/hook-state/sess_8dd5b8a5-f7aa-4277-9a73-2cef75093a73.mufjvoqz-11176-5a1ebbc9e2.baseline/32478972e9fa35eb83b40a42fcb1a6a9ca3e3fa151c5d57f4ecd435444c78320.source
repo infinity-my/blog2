@@ -1,0 +1,36 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.Article;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+/** 文章详情（含正文结构化块），详情页接口的返回体 */
+public record PostDetail(
+        Long id,
+        String title,
+        String excerpt,
+        LocalDate date,
+        String category,
+        List<String> tags,
+        Integer views,
+        Integer comments,
+        List<Map<String, Object>> content) {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    public static PostDetail from(Article a) {
+        List<Map<String, Object>> content;
+        try {
+            content = JSON.readValue(a.getContent(), new TypeReference<>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("文章正文 JSON 解析失败 id=" + a.getId(), e);
+        }
+        return new PostDetail(a.getId(), a.getTitle(), a.getExcerpt(), a.getPublishDate(),
+                a.getCategory(), a.getTags(), a.getViews(), a.getComments(), content);
+    }
+}

@@ -1,0 +1,5 @@
+package com.example.bloghd.dto;
+
+/** 首页侧栏站点统计 */
+public record SiteStats(long posts, long categories, long visits) {
+}

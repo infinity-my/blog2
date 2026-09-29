@@ -1,0 +1,53 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.SiteVisit;
+import com.example.bloghd.mapper.SiteVisitMapper;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * 后台的访问统计接口：站点累计 + 近 N 天每日访问量（含今天，升序零填充）。
+ * 数据来自 site_visit（进站上报逐日落库），这里只做读取与拼窗口。
+ */
+@RestController
+@RequestMapping("/api/admin/stats")
+public class AdminStatsController {
+
+    private final SiteVisitMapper siteVisitMapper;
+
+    public AdminStatsController(SiteVisitMapper siteVisitMapper) {
+        this.siteVisitMapper = siteVisitMapper;
+    }
+
+    @GetMapping("/daily")
+    public DailyStats daily(@RequestParam(defaultValue = "30") int days) {
+        int window = Math.max(1, Math.min(365, days));
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusDays(window - 1L);
+
+        List<SiteVisit> visits = siteVisitMapper.selectList(new LambdaQueryWrapper<SiteVisit>()
+                .ge(SiteVisit::getStatDate, start)
+                .le(SiteVisit::getStatDate, today));
+        Map<LocalDate, Integer> byDate = visits.stream()
+                .collect(Collectors.toMap(SiteVisit::getStatDate, SiteVisit::getVisits));
+
+        Map<String, Integer> series = new LinkedHashMap<>();
+        for (LocalDate d = start; !d.isAfter(today); d = d.plusDays(1)) {
+            series.put(d.toString(), byDate.getOrDefault(d, 0));
+        }
+        return new DailyStats(siteVisitMapper.sumVisits(), series);
+    }
+
+    /** days 为 date -> visits 的升序零填充序列，key 形如 2026-09-25 */
+    public record DailyStats(long total, Map<String, Integer> days) {
+    }
+}

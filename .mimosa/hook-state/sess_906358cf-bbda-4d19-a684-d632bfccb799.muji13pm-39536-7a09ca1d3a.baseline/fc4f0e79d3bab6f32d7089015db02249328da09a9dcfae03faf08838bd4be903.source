@@ -1,0 +1,5 @@
+package com.example.bloghd.dto;
+
+/** 点赞结果：返回服务端最新计数 */
+public record LikeResult(Long id, Integer likes) {
+}

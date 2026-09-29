@@ -1,0 +1,122 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.entity.WritingActivity;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.WritingActivityMapper;
+import jakarta.servlet.Filter;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class PostControllerTest {
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private ArticleMapper articleMapper;
+
+    @Autowired
+    private WritingActivityMapper writingActivityMapper;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        articleMapper.delete(null);
+        writingActivityMapper.delete(null);
+    }
+
+    private Article article(String title, String category, LocalDate publishDate) {
+        Article a = new Article();
+        a.setTitle(title);
+        a.setCategory(category);
+        a.setPublishDate(publishDate);
+        a.setViews(0);
+        a.setComments(0);
+        return a;
+    }
+
+    @Test
+    void postsReturnsAllSortedByDateDesc() throws Exception {
+        articleMapper.insert(article("older", "前端", LocalDate.of(2025, 1, 1)));
+        articleMapper.insert(article("newer", "随笔", LocalDate.of(2026, 9, 1)));
+
+        mockMvc.perform(get("/api/posts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].title").value("newer"))
+                .andExpect(jsonPath("$[0].date").value("2026-09-01"))
+                .andExpect(jsonPath("$[1].title").value("older"));
+    }
+
+    @Test
+    void postsSupportsCategoryFilterAndAscOrder() throws Exception {
+        articleMapper.insert(article("a-fe", "前端", LocalDate.of(2026, 9, 1)));
+        articleMapper.insert(article("b-fe", "前端", LocalDate.of(2026, 9, 10)));
+        articleMapper.insert(article("c-essay", "随笔", LocalDate.of(2026, 9, 5)));
+
+        mockMvc.perform(get("/api/posts").param("category", "前端").param("order", "asc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].title").value("a-fe"))
+                .andExpect(jsonPath("$[1].title").value("b-fe"));
+    }
+
+    @Test
+    void postsReturnsTagsAsArray() throws Exception {
+        Article a = article("tagged", "前端", LocalDate.of(2026, 9, 1));
+        a.setTags(List.of("Vue", "JavaScript"));
+        articleMapper.insert(a);
+
+        mockMvc.perform(get("/api/posts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].tags.length()").value(2))
+                .andExpect(jsonPath("$[0].tags[0]").value("Vue"));
+    }
+
+    @Test
+    void heatmapZeroFillsWindowAndSumsNothing() throws Exception {
+        LocalDate today = LocalDate.now();
+        WritingActivity inWindow = new WritingActivity();
+        inWindow.setStatDate(today.minusDays(2));
+        inWindow.setActivityCount(3);
+        WritingActivity outOfWindow = new WritingActivity();
+        outOfWindow.setStatDate(today.minusDays(30));
+        outOfWindow.setActivityCount(9);
+        writingActivityMapper.insert(inWindow);
+        writingActivityMapper.insert(outOfWindow);
+
+        String json = mockMvc.perform(get("/api/heatmap").param("days", "7"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(json).contains("\"" + today.minusDays(2) + "\":3");
+        assertThat(json).contains("\"" + today + "\":0");
+        assertThat(json).doesNotContain(today.minusDays(30).toString());
+
+        // 窗口内应恰好 7 天
+        int commas = json.split(",").length;
+        assertThat(commas).isEqualTo(7);
+    }
+}

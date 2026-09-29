@@ -1,0 +1,83 @@
+package com.example.bloghd.support;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * 上传素材的落盘：写到 blog.assets.dir（默认 data/assets，与 WebConfig 的静态
+ * 资源映射同一目录），文件名用随机 UUID 防覆盖与防路径猜测，扩展名白名单拦截。
+ * 图片与视频（页面背景用）各自一套白名单和大小限额。
+ */
+@Component
+public class AssetStorage {
+
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif");
+    private static final Set<String> VIDEO_EXTENSIONS = Set.of("mp4", "webm");
+    /** 子目录只允许这类字符，拼路径前先卡掉目录穿越 */
+    private static final String FOLDER_PATTERN = "[a-z0-9_-]*";
+
+    private final Path rootDir;
+    private final long maxImageBytes;
+    private final long maxVideoBytes;
+
+    public AssetStorage(@Value("${blog.assets.dir:data/assets}") String rootDir,
+                        @Value("${blog.assets.max-size-mb:10}") long maxImageMb,
+                        @Value("${blog.assets.max-video-mb:50}") long maxVideoMb) {
+        this.rootDir = Path.of(rootDir);
+        this.maxImageBytes = maxImageMb * 1024 * 1024;
+        this.maxVideoBytes = maxVideoMb * 1024 * 1024;
+    }
+
+    /** 存图片/视频并返回可访问的 /api/assets URL；folder 为空串表示直接放根目录 */
+    public String store(MultipartFile file, String folder) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择素材文件");
+        }
+        if (folder == null || !folder.matches(FOLDER_PATTERN)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "素材目录不合法");
+        }
+        String extension = extensionOf(file.getOriginalFilename());
+        boolean video = VIDEO_EXTENSIONS.contains(extension);
+        if (!video && !IMAGE_EXTENSIONS.contains(extension)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只支持 "
+                    + joined(IMAGE_EXTENSIONS) + " 图片或 " + joined(VIDEO_EXTENSIONS) + " 视频");
+        }
+        long maxBytes = video ? maxVideoBytes : maxImageBytes;
+        if (file.getSize() > maxBytes) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    (video ? "视频" : "图片") + "不能超过 " + (maxBytes / 1024 / 1024) + "MB");
+        }
+
+        Path dir = folder.isEmpty() ? rootDir : rootDir.resolve(folder);
+        // transferTo 传相对路径会解析到 multipart 临时目录而非进程工作目录，必须先转绝对路径
+        dir = dir.toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(dir);
+            String name = UUID.randomUUID().toString().replace("-", "") + "." + extension;
+            file.transferTo(dir.resolve(name).toFile());
+            return "/api/assets/" + (folder.isEmpty() ? "" : folder + "/") + name;
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "素材保存失败");
+        }
+    }
+
+    private static String joined(Set<String> extensions) {
+        return String.join(" / ", extensions.stream().sorted().toList());
+    }
+
+    private static String extensionOf(String originalFilename) {
+        String name = originalFilename == null ? "" : originalFilename.toLowerCase(Locale.ROOT);
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot + 1);
+    }
+}

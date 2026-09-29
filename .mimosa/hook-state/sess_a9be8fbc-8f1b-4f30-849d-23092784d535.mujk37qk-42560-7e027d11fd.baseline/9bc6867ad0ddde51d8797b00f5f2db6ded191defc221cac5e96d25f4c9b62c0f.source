@@ -1,0 +1,125 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.VisitLog;
+import com.example.bloghd.mapper.VisitLogMapper;
+import com.example.bloghd.security.AuthException;
+import com.example.bloghd.security.CurrentUser;
+import com.example.bloghd.support.LikeSupport;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.Set;
+
+/**
+ * 前台行为埋点：前台只上报有意义的行为（打开文档/项目、评论、留言、点赞），
+ * 普通页面导航不上报。匿名也收，身份复用点赞那套 visitorKey
+ * （登录 u:{userId} / 匿名 cookie v:{uuid}），匿名首次上报顺带把访客 cookie 种下去。
+ * 打开文档/项目属于「看」，同一访客一分钟内重复上报同一路径视为刷新：合并成一条；
+ * 评论/留言/点赞属于「做」，条条如实记录。
+ */
+@RestController
+@RequestMapping("/api/track")
+public class TrackController {
+
+    private static final int MERGE_WINDOW_SECONDS = 60;
+    private static final int MAX_PATH = 300;
+    private static final int MAX_TITLE = 200;
+    private static final int MAX_DETAIL = 500;
+
+    /** 允许上报的行为类型；页面导航不在其中，前台不应上报 */
+    private static final Set<String> ACTIONS = Set.of(
+            VisitLog.POST, VisitLog.PROJECT, VisitLog.COMMENT, VisitLog.MESSAGE, VisitLog.LIKE);
+    /** 这两类是「看」，可合并去重；其余是「做」，逐条保留 */
+    private static final Set<String> MERGEABLE = Set.of(VisitLog.POST, VisitLog.PROJECT);
+
+    private final VisitLogMapper visitLogMapper;
+    private final LikeSupport likeSupport;
+    private final CurrentUser currentUser;
+
+    public TrackController(VisitLogMapper visitLogMapper, LikeSupport likeSupport, CurrentUser currentUser) {
+        this.visitLogMapper = visitLogMapper;
+        this.likeSupport = likeSupport;
+        this.currentUser = currentUser;
+    }
+
+    @PostMapping("/visit")
+    public ResponseEntity<Void> visit(@RequestBody VisitForm form,
+                                      HttpServletRequest request,
+                                      HttpServletResponse response) {
+        String action = form.action() == null ? "" : form.action().trim().toLowerCase();
+        if (!ACTIONS.contains(action)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_ACTION", "行为类型不合法");
+        }
+        String path = form.path() == null ? "" : form.path().trim();
+        // 埋点接口保持「来者不拒」的低噪声语义：缺路径就没法落记录，静默吞掉不报错
+        if (path.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+        if (path.length() > MAX_PATH) {
+            path = path.substring(0, MAX_PATH);
+        }
+        String title = clamp(form.title(), MAX_TITLE);
+        String detail = clamp(form.detail(), MAX_DETAIL);
+
+        var principal = currentUser.orNull();
+        String visitorKey = likeSupport.visitorKey(principal, request, response);
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+
+        if (MERGEABLE.contains(action)) {
+            VisitLog recent = visitLogMapper.selectOne(new LambdaQueryWrapper<VisitLog>()
+                    .eq(VisitLog::getVisitorKey, visitorKey)
+                    .eq(VisitLog::getAction, action)
+                    .eq(VisitLog::getPath, path)
+                    .gt(VisitLog::getCreatedAt, now.minusSeconds(MERGE_WINDOW_SECONDS))
+                    .orderByDesc(VisitLog::getCreatedAt)
+                    .last("LIMIT 1"));
+            if (recent != null) {
+                if (title != null && !title.equals(recent.getTitle())) {
+                    VisitLog patch = new VisitLog();
+                    patch.setId(recent.getId());
+                    patch.setTitle(title);
+                    visitLogMapper.updateById(patch);
+                }
+                return ResponseEntity.noContent().build();
+            }
+        }
+
+        VisitLog log = new VisitLog();
+        log.setVisitorKey(visitorKey);
+        log.setUserId(principal == null ? null : principal.id());
+        log.setAction(action);
+        log.setPath(path);
+        log.setTitle(title);
+        log.setDetail(detail);
+        log.setCreatedAt(now);
+        visitLogMapper.insert(log);
+        return ResponseEntity.noContent().build();
+    }
+
+    private static String clamp(String value, int max) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) return null;
+        return trimmed.length() > max ? trimmed.substring(0, max) : trimmed;
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record VisitForm(String action, String path, String title, String detail) {
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

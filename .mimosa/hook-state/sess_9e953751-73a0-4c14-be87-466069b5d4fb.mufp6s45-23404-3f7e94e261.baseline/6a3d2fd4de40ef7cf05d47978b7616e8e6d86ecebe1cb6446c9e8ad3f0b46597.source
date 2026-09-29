@@ -1,0 +1,5 @@
+package com.example.bloghd.dto;
+
+/** 站点背景素材，值来自 site_config；键缺失时字段为 null，前端回落本地素材 */
+public record SiteAssets(String heroImage, String heroVideo) {
+}

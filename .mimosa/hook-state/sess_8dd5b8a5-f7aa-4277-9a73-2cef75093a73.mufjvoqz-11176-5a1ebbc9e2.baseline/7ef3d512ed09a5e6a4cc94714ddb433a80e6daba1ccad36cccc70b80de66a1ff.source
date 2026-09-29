@@ -1,0 +1,120 @@
+// 纯前端模拟数据：简历内容，结构即后端接口将来返回的字段
+// 接入后端后把这份数据换成 GET /api/resume 的返回即可，视图层不用改
+export const mockResume = {
+  updatedAt: '2026-09-24',
+  profile: {
+    name: '陈屿',
+    title: '高级前端工程师',
+    city: '深圳 · 南山',
+    experience: '6 年经验',
+    status: '在职 · 看机会',
+    email: 'yourname@example.com',
+    phone: '138 0000 0000',
+    site: 'yourname.github.io',
+  },
+  metrics: [
+    { value: '6 年', label: '前端经验' },
+    { value: '30+', label: '交付项目' },
+    { value: '5', label: '开源仓库' },
+    { value: '2.4k', label: 'GitHub Star' },
+  ],
+  summary: [
+    '六年前端，做过中台、数据看板与面向 C 端的工具型产品。擅长把模糊的需求拆成可交付的界面与数据流，也习惯在交付之后回头补文档和测试。',
+    '近几年主要在做两件事：一是设计系统落地，把散落在各业务的样式收敛成一套可维护的组件；二是性能治理，用真实用户指标而不是本地跑分来判断优化是否有效。',
+    '业余维护几个开源小工具，写作和造轮子都是为了让理解落到具体的东西上。',
+  ],
+  skills: [
+    { group: '语言与框架', items: ['JavaScript', 'TypeScript', 'Vue 3', 'React', 'Node.js'] },
+    { group: '工程化', items: ['Vite', 'Webpack', 'ESLint / Prettier', 'Vitest', 'Playwright'] },
+    { group: '界面与体验', items: ['CSS 变量与主题', 'Canvas', 'ECharts', '响应式与无障碍'] },
+    { group: '协作与后端', items: ['REST API 设计', 'MySQL', 'Spring Boot 读写', 'Git 工作流'] },
+  ],
+  experience: [
+    {
+      company: '深圳某互联网公司',
+      role: '高级前端工程师',
+      period: '2022.06 — 至今',
+      city: '深圳',
+      summary: '负责中台前端架构与设计系统，带一个 4 人小组。',
+      points: [
+        '主导设计系统从 0 到 1：抽出 30 余个通用组件，业务侧重复样式代码下降约 40%',
+        '性能治理二期：以真实用户指标为准，首页 LCP 由 3.4s 降至 1.2s，首屏请求数减半',
+        '推动前端工程规范落地：统一 lint、提交校验与发布流程，线上回滚次数季度环比下降',
+      ],
+      stack: ['Vue 3', 'TypeScript', 'Vite'],
+    },
+    {
+      company: '深圳某 SaaS 公司',
+      role: '前端工程师',
+      period: '2019.07 — 2022.05',
+      city: '深圳',
+      summary: '管理后台与数据看板开发，兼组件库维护。',
+      points: [
+        '负责 6 个业务模块的界面开发与迭代，累计交付 20 余个版本',
+        '重建打包链路，构建耗时从 90s 降到 12s，增量构建控制在 1s 内',
+        '维护内部组件库并沉淀使用文档，被 4 条业务线接入',
+      ],
+      stack: ['Vue 2 / 3', 'Webpack', 'ECharts'],
+    },
+    {
+      company: '广州某创业团队',
+      role: '前端开发',
+      period: '2018.03 — 2019.06',
+      city: '广州',
+      summary: '从实习做到正式，一个人扛下官网与后台界面。',
+      points: [
+        '独立完成官网与运营后台，支撑早期三款产品的上线节奏',
+        '把重复的页面结构整理成模板，新页面搭建时间从两天缩短到半天',
+      ],
+      stack: ['JavaScript', 'jQuery', 'Bootstrap'],
+    },
+  ],
+  projects: [
+    {
+      name: 'Glass UI 组件库',
+      role: '独立开发 · 开源',
+      period: '2025.06 — 至今',
+      desc: '玻璃拟态风格的 Vue 3 组件库，模糊半径与透明度全部暴露为 props，附在线文档。',
+      points: ['npm 周下载量稳定在 4 位数，被若干个人项目引用', '用 Vitest + Playwright 覆盖交互与视觉回归'],
+      stack: ['Vue 3', 'TypeScript', 'Vitest'],
+    },
+    {
+      name: '玻璃博客',
+      role: '独立开发',
+      period: '2025.09 — 至今',
+      desc: '你现在正在看的这个站点：不依赖 UI 库手写的液态玻璃界面，含文章、归档、相册与留言。',
+      points: ['手写亮暗两套主题与主题切换，零 UI 依赖', '留言、相册、随笔均已完成前后端联调'],
+      stack: ['Vue 3', 'Vite', 'Spring Boot'],
+    },
+    {
+      name: 'CliNote 命令行笔记',
+      role: '作者 · 已发布 npm',
+      period: '2024.08 — 2024.10',
+      desc: '终端里的 markdown 笔记工具，支持全文检索、标签过滤与 git 自动同步。',
+      points: ['笔记目录即 git 仓库，退出编辑自动 commit，push 交给 cron', '纯文本优先，不被工具绑架'],
+      stack: ['Node.js', 'Commander'],
+    },
+  ],
+  education: [
+    {
+      school: '某大学',
+      major: '计算机科学与技术',
+      degree: '本科',
+      period: '2014.09 — 2018.06',
+    },
+  ],
+  extras: [
+    {
+      title: '开源与技术输出',
+      items: [
+        'GitHub 维护 5 个仓库，其中 2 个发布至 npm',
+        '技术文章 30 余篇，累计阅读 10w+',
+        '公司内部技术分享 6 次，主题涵盖设计系统与前端性能',
+      ],
+    },
+    {
+      title: '其他',
+      items: ['英语六级，可无障碍阅读技术文档与源码', '习惯用写作梳理问题，博客保持月更'],
+    },
+  ],
+}

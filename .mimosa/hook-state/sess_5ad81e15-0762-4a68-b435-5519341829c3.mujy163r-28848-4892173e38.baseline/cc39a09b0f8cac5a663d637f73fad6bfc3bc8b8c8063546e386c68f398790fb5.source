@@ -1,0 +1,145 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import com.example.bloghd.mapper.AppUserMapper;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 会话与账号状态绑定（AccountStateFilter）：停用管理员、删除访客之后，
+ * 已发出的旧会话必须在下一个请求当场失权，而不是活到会话自然过期。
+ * 账号行直接改库模拟后台操作，重点验证的是「旧会话继续用」这条路径。
+ */
+@SpringBootTest
+// 管理员口令运行期随机生成（见下方 DynamicPropertySource），源码不出现凭据字面量。
+// 用户名避开 AdminApiTest 种的 admin：seeder 对已有同名账号跳过，撞名会让随机口令落不了库
+@ActiveProfiles("test")
+class AccountStateFilterTest {
+
+    private static final String ADMIN_USERNAME = "revocation-admin";
+    private static final String ADMIN_PASSWORD = "pwd-" + UUID.randomUUID().toString().substring(0, 12);
+
+    @DynamicPropertySource
+    static void adminProps(DynamicPropertyRegistry registry) {
+        registry.add("blog.admin.username", () -> ADMIN_USERNAME);
+        registry.add("blog.admin.password", () -> ADMIN_PASSWORD);
+    }
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private AdminAccountMapper adminAccountMapper;
+
+    @Autowired
+    private AppUserMapper appUserMapper;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        csrfCookie = mockMvc.perform(get("/api/posts")).andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    private MockHttpServletRequestBuilder csrf(MockHttpServletRequestBuilder builder) {
+        return builder.cookie(csrfCookie).header("X-XSRF-TOKEN", csrfCookie.getValue());
+    }
+
+    private MockHttpServletRequestBuilder jsonPost(String path, String body) {
+        return csrf(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpServletRequestBuilder jsonPut(String path, String body) {
+        return csrf(put(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpSession adminSession() throws Exception {
+        MvcResult result = mockMvc.perform(jsonPost("/api/admin/login",
+                        "{\"username\":\"%s\",\"password\":\"%s\"}".formatted(ADMIN_USERNAME, ADMIN_PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    private MockHttpSession visitorSession(String email) throws Exception {
+        String body = "{\"email\":\"%s\",\"name\":\"访客\",\"password\":\"pwd-%s\"}"
+                .formatted(email, UUID.randomUUID().toString().substring(0, 8));
+        MvcResult result = mockMvc.perform(jsonPost("/api/auth/register", body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    @Test
+    void disabledAdminLosesAccessAndCannotSelfRestoreViaOldSession() throws Exception {
+        MockHttpSession session = adminSession();
+        AdminAccount account = adminAccountMapper.selectOne(
+                new LambdaQueryWrapper<AdminAccount>().eq(AdminAccount::getUsername, ADMIN_USERNAME));
+        assertThat(account).isNotNull();
+
+        // 后台停用该管理员（这里直接改库模拟操作生效的那一刻）
+        account.setEnabled(false);
+        adminAccountMapper.updateById(account);
+
+        // 旧会话第一次使用即被吊销：401，且服务端会话已作废
+        mockMvc.perform(csrf(get("/api/admin/me")).session(session))
+                .andExpect(status().isUnauthorized());
+        assertThat(session.isInvalid()).isTrue();
+
+        // 被停用者拿同一会话把自己改回启用：进不了控制器，改不动
+        mockMvc.perform(jsonPut("/api/admin/accounts/" + account.getId(), "{\"enabled\":true}")
+                        .session(session))
+                .andExpect(status().isUnauthorized());
+        assertThat(adminAccountMapper.selectById(account.getId()).getEnabled()).isFalse();
+    }
+
+    @Test
+    void deletedVisitorLosesAccessViaOldSession() throws Exception {
+        String email = "gone-%s@example.com".formatted(UUID.randomUUID().toString().substring(0, 8));
+        MockHttpSession session = visitorSession(email);
+        Long userId = appUserMapper.selectOne(
+                new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, email)).getId();
+
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(userId.intValue()));
+
+        // 删行即吊销：app_user 没有停用位，行不存在就是失权
+        appUserMapper.deleteById(userId);
+
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isUnauthorized());
+        assertThat(session.isInvalid()).isTrue();
+    }
+}

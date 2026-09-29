@@ -1,0 +1,23 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 简历整包内容：库里只有一行，payload 是含 updatedAt 在内的完整简历 JSON */
+@Data
+@TableName("resume_content")
+public class ResumeContent {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    /** 完整简历 JSON，结构与前端渲染所需字段一一对应 */
+    private String payload;
+
+    /** 内容更新时间，与 payload.updatedAt 保持一致 */
+    private LocalDateTime updatedAt;
+}

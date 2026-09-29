@@ -1,0 +1,68 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.Tag;
+import com.example.bloghd.support.TagPool;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 后台标签管理接口。标签全站共用，tag 表是名称的唯一事实：
+ * 列表带三类内容的使用数，改名/删除由 TagPool 同步回文章/随笔/照片。
+ */
+@RestController
+@RequestMapping("/api/admin/tags")
+public class AdminTagController {
+
+    private final TagPool tagPool;
+
+    public AdminTagController(TagPool tagPool) {
+        this.tagPool = tagPool;
+    }
+
+    public record TagView(Long id, String name, long articleCount, long essayCount, long photoCount) {
+
+        static TagView of(Tag tag, Map<String, TagPool.Usage> usage) {
+            TagPool.Usage u = usage.getOrDefault(tag.getName(), new TagPool.Usage(0, 0, 0));
+            return new TagView(tag.getId(), tag.getName(), u.article(), u.essay(), u.photo());
+        }
+    }
+
+    public record TagForm(String name) {
+    }
+
+    @GetMapping
+    public List<TagView> list(@RequestParam(required = false) String keyword) {
+        Map<String, TagPool.Usage> usage = tagPool.usageByName();
+        return tagPool.list(keyword).stream().map(tag -> TagView.of(tag, usage)).toList();
+    }
+
+    @PostMapping
+    public ResponseEntity<TagView> create(@RequestBody TagForm form) {
+        Tag tag = tagPool.create(form.name());
+        return ResponseEntity.status(HttpStatus.CREATED).body(TagView.of(tag, tagPool.usageByName()));
+    }
+
+    @PutMapping("/{id}")
+    public TagView update(@PathVariable Long id, @RequestBody TagForm form) {
+        Tag tag = tagPool.rename(id, form.name());
+        return TagView.of(tag, tagPool.usageByName());
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        tagPool.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+}

@@ -1,0 +1,17 @@
+package com.example.bloghd.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/** 背景视频等大文件素材放应用目录 data/assets，不打包进 jar，经 /api/assets/** 提供 */
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/api/assets/**")
+                .addResourceLocations("file:data/assets/")
+                .setCachePeriod(86400);
+    }
+}

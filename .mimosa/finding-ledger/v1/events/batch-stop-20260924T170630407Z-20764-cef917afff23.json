@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260924T170630407Z-20764-cef917afff23",
+  "runId": "20260924T170630407Z-20764-cef917afff23",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "3a8ed07f81db8041b99873c7b16dfbfcd3f878df55e142940e6ced55982d8471",
+  "rulesVersion": "unavailable",
+  "sessionHash": "6cd5ce7536b753663751a783ecf7226b9f81870e1ab897e2d5ddedcf189fdd94",
+  "reportRef": ".mimosa/reports/task-review-sess_cda0c5c4-7db9-455c-bda5-e64633c995b7-20260924T170630407Z-20764-cef917afff23.json",
+  "events": [
+    {
+      "eventId": "hook-5699cf58d46dd27ae2155e00d9faab85",
+      "findingId": "mimosa-7a861a3432d36ae13c806e77",
+      "type": "finding_observed",
+      "at": "2026-09-24T17:06:30.407Z",
+      "identity": {
+        "projectRelativeFile": "blog-ht/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "e95c4be7166b7d6a9e0319fccb660759ac5fb8fdb5ac06308eb9e924e6185cbb",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 16,
+      "endLine": 16,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "e95c4be7166b7d6a9e0319fccb660759ac5fb8fdb5ac06308eb9e924e6185cbb"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-fbd04a458779482826e93913c60d6bbf",
+      "findingId": "mimosa-ff5c96eecdc48566e348c225",
+      "type": "finding_observed",
+      "at": "2026-09-24T17:06:30.407Z",
+      "identity": {
+        "projectRelativeFile": "blog-ht/package.json",
+        "ruleId": "mimosa.supply.version-range",
+        "codeEvidenceHash": "ddbfabc42f42e3aff87983e1234fdf92136466b7ca3204192065b54c1cf2d1f3",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 17,
+      "endLine": 17,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "ddbfabc42f42e3aff87983e1234fdf92136466b7ca3204192065b54c1cf2d1f3"
+      },
+      "sequence": 1
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "blog-qd/src/main.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "blog-qd/src/router/index.js",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-24T17:06:30.838Z"
+}

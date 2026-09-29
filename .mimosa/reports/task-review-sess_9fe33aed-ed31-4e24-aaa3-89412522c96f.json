@@ -1,0 +1,611 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20260924T164531994Z-21028-127551080cf6",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "candidate-select",
+      "target": "blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java",
+      "reason": "candidate_limit_exceeded: 21 changed reviewable file(s) were not scanned because the limit is 20"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 90,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 24
+    },
+    "change_tracking": {
+      "touched_observed": 1,
+      "touched_retained": 1,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 41,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 41,
+      "selected_files": 20,
+      "limit": 20,
+      "truncated": true
+    },
+    "scanning": {
+      "required_files": 17,
+      "scanned_files": 17,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_snapshot_unreadable": 7,
+      "project_check_failed": 8
+    },
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java",
+        "detail": "21 changed reviewable file(s) were not scanned because the limit is 20",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/LikeRecord.java",
+        "detail": "candidate_limit_exceeded: 21 changed reviewable file(s) were not scanned because the limit is 20",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-09-24T16:45:31.994Z",
+  "session_id": "sess_9fe33aed-ed31-4e24-aaa3-89412522c96f",
+  "target": ".",
+  "revision": null,
+  "rules_version": "unavailable",
+  "diff_hash": "bee53af866748cf4495d314664fd3ea0d86ab84af5060e5f9e759a97f238c828",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 17,
+    "changed_files": [
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/entity/Comment.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 27
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "94b816b727837297dab72b368dd39a1eb7b512cf5f48e73dc2bbc358a783b58a"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/mapper/CommentMapper.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 9
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "07c29217f6976864ee1d2672daa2f1ade4418e6006e68a7dadb0f18db23aaa0f"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/mapper/LikeRecordMapper.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 9
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "87b4ce0209a79789872c2ce903f2a1197d9df83641e402ddfdd336892fdbc338"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/mapper/ResumeContentMapper.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 9
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "2173b32c310eefe3ae7b69d80871b1164c41e473e8b286e421aeb511de4a2982"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/support/AssetStorage.java",
+        "ranges": [
+          {
+            "start": 55,
+            "end": 56
+          }
+        ],
+        "before_hash": "bb13a6060162131db04db54040ab83e60b6ed504aa5066ff63ac6b832690b44c",
+        "after_hash": "41a1de3e0cc1bb924600e2043596c7780df4ec8a590d31dd600ace799c64eccd"
+      },
+      {
+        "file": "blog-hd/src/main/java/com/example/bloghd/support/LikeSupport.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 101
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8982321556f9386cdee89e6d100debda85ffc436f2bab3e3fc269bc57212937b"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminApiTest.java",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 7,
+            "end": 7
+          },
+          {
+            "start": 10,
+            "end": 10
+          },
+          {
+            "start": 13,
+            "end": 13
+          },
+          {
+            "start": 32,
+            "end": 32
+          },
+          {
+            "start": 76,
+            "end": 81
+          },
+          {
+            "start": 94,
+            "end": 94
+          },
+          {
+            "start": 236,
+            "end": 357
+          }
+        ],
+        "before_hash": "38439c463d7dc91f0bca1cf123a083b8e8f0b30bde9c80b70e7ae68a91e4d3f0",
+        "after_hash": "b084031de9bd84210d9be506143e027f0ee1857f3ae81fef643a6eeb2b70c753"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/AdminContentApiTest.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 263
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "ec18f3965581f5fe2aeef380fe35508f15cb818df001cdfeba8814370c5d2040"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/AuthControllerTest.java",
+        "ranges": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 8,
+            "end": 8
+          },
+          {
+            "start": 57,
+            "end": 59
+          },
+          {
+            "start": 75,
+            "end": 75
+          },
+          {
+            "start": 326,
+            "end": 333
+          },
+          {
+            "start": 349,
+            "end": 355
+          }
+        ],
+        "before_hash": "a121e7c0828a2175f4a0906cfa5287db8371a264efa88f238c7212f29245cce2",
+        "after_hash": "2c1820bfbcb6a0aac5cfb1feefb6ed1d652f6b3464d2787a885c8a87271bf35c"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/CommentControllerTest.java",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 172
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "2e6aa205a88059f7fd1c4d8e5a978d793d995afc09de4a4518d7f82f597b7de1"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/MessageControllerTest.java",
+        "ranges": [
+          {
+            "start": 7,
+            "end": 7
+          },
+          {
+            "start": 51,
+            "end": 53
+          },
+          {
+            "start": 63,
+            "end": 63
+          },
+          {
+            "start": 163,
+            "end": 163
+          },
+          {
+            "start": 166,
+            "end": 175
+          },
+          {
+            "start": 179,
+            "end": 180
+          },
+          {
+            "start": 183,
+            "end": 183
+          },
+          {
+            "start": 188,
+            "end": 213
+          },
+          {
+            "start": 256,
+            "end": 265
+          }
+        ],
+        "before_hash": "c3b064a0f5f966202779fc87e5d4654073d97a800cea71e2cb4682085edfe8e8",
+        "after_hash": "57a4b724aee8e115ee6e6836fcc6f4f30f5d937db4fbcd928a94031aafe310fb"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/PostControllerTest.java",
+        "ranges": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 7,
+            "end": 7
+          },
+          {
+            "start": 20,
+            "end": 20
+          },
+          {
+            "start": 41,
+            "end": 43
+          },
+          {
+            "start": 52,
+            "end": 52
+          },
+          {
+            "start": 128,
+            "end": 158
+          }
+        ],
+        "before_hash": "c75f29808033f3b49694a61be63a45715ad8d7a678c801fcb83fd9b66cc1e645",
+        "after_hash": "68ff047345681e35ed6920692bb10af47ab5a796737f467bc87e436eea95c15e"
+      },
+      {
+        "file": "blog-hd/src/test/java/com/example/bloghd/controller/ResumeControllerTest.java",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 4
+          },
+          {
+            "start": 12,
+            "end": 12
+          },
+          {
+            "start": 20,
+            "end": 21
+          },
+          {
+            "start": 34,
+            "end": 36
+          },
+          {
+            "start": 46,
+            "end": 46
+          },
+          {
+            "start": 62,
+            "end": 69
+          },
+          {
+            "start": 98,
+            "end": 141
+          }
+        ],
+        "before_hash": "88d4ac097d75b13323cf0bad50a801ec459ce503b8d98c462a582eb710392947",
+        "after_hash": "d55a591a79244d21ee95312f7bdfc58a3cdb0fc30d37b787de1ace7fb7def563"
+      },
+      {
+        "file": "blog-ht/src/api/admin.js",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 1
+          },
+          {
+            "start": 51,
+            "end": 141
+          }
+        ],
+        "before_hash": "01c4b33f54b5719aff3a57be8c03e5a32b54fe5e749f186bf260d19bf4ea0471",
+        "after_hash": "4368aa4722a346e63d0093d4c8fb5d3b398a35550d14cb03a535cf53ca98803c"
+      },
+      {
+        "file": "blog-ht/src/api/index.js",
+        "ranges": [
+          {
+            "start": 5,
+            "end": 5
+          },
+          {
+            "start": 16,
+            "end": 16
+          },
+          {
+            "start": 27,
+            "end": 27
+          }
+        ],
+        "before_hash": "6b7d3a4b77d587126b848d6961f1dfd709e301583bd7e140039837cd387fd678",
+        "after_hash": "823cd1e86632167da0422e1af8c2b6a5542b0eda9fad90efcdf869af8578be03"
+      },
+      {
+        "file": "blog-ht/src/router/index.js",
+        "ranges": [
+          {
+            "start": 17,
+            "end": 22
+          },
+          {
+            "start": 33,
+            "end": 57
+          },
+          {
+            "start": 60,
+            "end": 60
+          },
+          {
+            "start": 72,
+            "end": 72
+          }
+        ],
+        "before_hash": "3f7eb5887ddf8c8e6719ed3aa1f5fa6749d7dd040ef8ceb3a18d7757d6ac6597",
+        "after_hash": "75c72ce438c11e637ac99729f6fccbc293b7f2fe558a2258ead06e490e391d06"
+      },
+      {
+        "file": "blog-qd/src/api/index.js",
+        "ranges": [
+          {
+            "start": 219,
+            "end": 220
+          },
+          {
+            "start": 227,
+            "end": 254
+          }
+        ],
+        "before_hash": "ccd92f786a9747dfb78468ba2dac2145e164fffc4d204b32772a5037a2b7c4b3",
+        "after_hash": "e99446ee85463f6df3ebc03ef23d3ee2abd924c60f53e0b72a427e436e994772"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-09-24T16:45:30.055Z",
+    "completed_at": "2026-09-24T16:45:31.994Z",
+    "duration_ms": 1939,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 1939,
+    "peakMemoryBytes": 152379392,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 17,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_9fe33aed-ed31-4e24-aaa3-89412522c96f-20260924T164531994Z-21028-127551080cf6.json",
+    "latest_report": ".mimosa/reports/task-review-sess_9fe33aed-ed31-4e24-aaa3-89412522c96f.json",
+    "history_summary": ".mimosa/history/run-20260924T164531994Z-21028-127551080cf6.json"
+  }
+}

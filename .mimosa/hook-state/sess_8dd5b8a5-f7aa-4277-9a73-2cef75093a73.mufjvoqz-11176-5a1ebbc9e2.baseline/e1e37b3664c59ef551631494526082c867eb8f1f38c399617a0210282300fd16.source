@@ -1,0 +1,111 @@
+import { BASE } from './index'
+
+// 账号接口。登录态由服务端的 HttpOnly 会话 cookie 承载，前端拿不到也不需要保存任何凭证。
+// 失败统一抛出带 code / message 的 Error：message 直接取自后端，可原样展示给用户。
+
+const CSRF_HEADER = 'X-XSRF-TOKEN'
+const FALLBACK_MESSAGE = '出错了，稍后再试一次。'
+
+function readCsrfCookie() {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+/**
+ * 后端在任意响应上都会下发 CSRF cookie，但直接落在 /login 这类不做数据请求的页面上时
+ * 一个请求都还没发生，此时提交会被 CSRF 拦成 403。这里补一次轻量 GET 让 cookie 就位。
+ */
+async function csrfToken() {
+  const existing = readCsrfCookie()
+  if (existing) return existing
+  try {
+    await fetch(`${BASE}/stats`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  } catch {
+    // 网络不通时交给后续请求自己报错，这里不掩盖真实原因
+  }
+  return readCsrfCookie()
+}
+
+async function toError(response) {
+  let code = 'UNKNOWN_ERROR'
+  let message = FALLBACK_MESSAGE
+  try {
+    const body = await response.json()
+    if (body?.code) code = body.code
+    if (body?.message) message = body.message
+  } catch {
+    // 401 由安全过滤链直接拒绝，响应体是空的
+  }
+  if (code === 'UNKNOWN_ERROR' && response.status === 401) {
+    code = 'NOT_AUTHENTICATED'
+    message = '还没登录。'
+  }
+  const error = new Error(message)
+  error.status = response.status
+  error.code = code
+  return error
+}
+
+async function send(path, options) {
+  let response
+  try {
+    response = await fetch(`${BASE}${path}`, { credentials: 'same-origin', ...options })
+  } catch {
+    const error = new Error('网络连接失败，请稍后再试。')
+    error.status = 0
+    error.code = 'NETWORK_ERROR'
+    throw error
+  }
+  if (!response.ok) throw await toError(response)
+  return response.status === 204 ? null : response.json()
+}
+
+function get(path) {
+  return send(path, { headers: { Accept: 'application/json' } })
+}
+
+async function post(path, body) {
+  return send(path, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      [CSRF_HEADER]: await csrfToken(),
+    },
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+/**
+ * 当前登录身份；未登录时后端返回 401，抛出 code=NOT_AUTHENTICATED 的错误
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function fetchMe() {
+  return get('/auth/me')
+}
+
+/**
+ * 注册成功即登录
+ * @param {{ email: string, name: string, password: string }} payload
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function register(payload) {
+  return post('/auth/register', payload)
+}
+
+/**
+ * 登录；邮箱未注册与密码错误都会抛错，靠 error.code 区分
+ * @returns {Promise<{id:number,email:string,name:string}>}
+ */
+export function login(email, password) {
+  return post('/auth/login', { email, password })
+}
+
+export function logout() {
+  return post('/auth/logout')
+}
+
+/** 注销账号需要重新验证密码，密码不对时抛 code=WRONG_PASSWORD */
+export function deleteAccount(password) {
+  return post('/auth/delete', { password })
+}

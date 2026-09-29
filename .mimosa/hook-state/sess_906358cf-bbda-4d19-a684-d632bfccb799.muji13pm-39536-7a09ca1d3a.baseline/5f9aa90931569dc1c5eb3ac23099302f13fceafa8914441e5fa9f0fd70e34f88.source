@@ -1,0 +1,201 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.dto.ProjectView;
+import com.example.bloghd.entity.Project;
+import com.example.bloghd.mapper.ProjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * 后台的项目维护接口：全量列表、新增、修改、删除。
+ * stack 以 JSON 落库，序列化后必须装得进表列宽，超宽在入口就拦下。
+ * 列表不复用公开的 /api/projects（那边只出已展示的），这里要含隐藏项目。
+ */
+@RestController
+@RequestMapping("/api/admin/projects")
+public class AdminProjectController {
+
+    private static final int MAX_NAME = 100;
+    private static final int MAX_SLUG = 100;
+    private static final int MAX_DESCRIPTION = 500;
+    private static final int MAX_LINK = 300;
+    private static final int MAX_PERIOD = 50;
+    private static final int MAX_ROLE = 50;
+    private static final int MAX_STACK = 12;
+    private static final int MAX_STACK_ITEM = 50;
+    private static final int MAX_README = 50000;
+    /** 与表列宽对齐：stack VARCHAR(300) */
+    private static final int STACK_JSON = 300;
+    private static final Set<String> STATUSES = Set.of("开源中", "开发中", "已归档");
+    /** slug 用在详情路由上：小写字母/数字分段，段间以连字符相连 */
+    private static final String SLUG_PATTERN = "^[a-z0-9]+(-[a-z0-9]+)*$";
+
+    /** Jackson 2 与实体的 JacksonTypeHandler 同源，校验序列化尺寸用它 */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private final ProjectMapper projectMapper;
+
+    public AdminProjectController(ProjectMapper projectMapper) {
+        this.projectMapper = projectMapper;
+    }
+
+    @GetMapping
+    public List<ProjectView> list() {
+        return projectMapper
+                .selectList(new LambdaQueryWrapper<Project>()
+                        .orderByAsc(Project::getSortOrder, Project::getId))
+                .stream()
+                .map(ProjectView::from)
+                .toList();
+    }
+
+    @PostMapping
+    public ResponseEntity<ProjectView> create(@RequestBody ProjectForm form) {
+        Project project = new Project();
+        apply(project, form, null);
+        projectMapper.insert(project);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
+    }
+
+    @PutMapping("/{id}")
+    public ProjectView update(@PathVariable Long id, @RequestBody ProjectForm form) {
+        Project project = projectMapper.selectById(id);
+        if (project == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在");
+        }
+        apply(project, form, id);
+        projectMapper.updateById(project);
+        return ProjectView.from(project);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (projectMapper.deleteById(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    private void apply(Project project, ProjectForm form, Long selfId) {
+        String name = trimmed(form.name());
+        if (name.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "项目名称必填");
+        }
+        if (name.length() > MAX_NAME) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "项目名称不能超过 " + MAX_NAME + " 字");
+        }
+        String slug = trimmed(form.slug());
+        if (slug.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "slug 必填");
+        }
+        if (slug.length() > MAX_SLUG || !slug.matches(SLUG_PATTERN)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "slug 只能包含小写字母、数字和中间的连字符");
+        }
+        // 唯一性在入口拦下，别落到唯一键冲突变 500；更新时排除自身
+        Long sameSlug = projectMapper.selectCount(new LambdaQueryWrapper<Project>()
+                .eq(Project::getSlug, slug)
+                .ne(selfId != null, Project::getId, selfId));
+        if (sameSlug > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "slug 已被其他项目使用");
+        }
+        String description = trimmed(form.desc());
+        if (description.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "项目简介必填");
+        }
+        if (description.length() > MAX_DESCRIPTION) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "项目简介不能超过 " + MAX_DESCRIPTION + " 字");
+        }
+        String status = trimmed(form.status());
+        if (!STATUSES.contains(status)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "状态只允许：开源中、开发中、已归档");
+        }
+        List<String> stack = cleanList(form.stack());
+        if (stack.size() > MAX_STACK || stack.stream().anyMatch(s -> s.length() > MAX_STACK_ITEM)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "技术栈最多 " + MAX_STACK + " 项，每项不超过 " + MAX_STACK_ITEM + " 字");
+        }
+        checkJsonFits("技术栈", stack, STACK_JSON);
+        if (trimmed(form.repo()).length() > MAX_LINK || trimmed(form.demo()).length() > MAX_LINK) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仓库/在线预览地址不能超过 " + MAX_LINK + " 字");
+        }
+        if (trimmed(form.period()).length() > MAX_PERIOD) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "开发周期不能超过 " + MAX_PERIOD + " 字");
+        }
+        if (trimmed(form.role()).length() > MAX_ROLE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "承担角色不能超过 " + MAX_ROLE + " 字");
+        }
+        String readme = blankToNull(form.readme());
+        if (readme != null && readme.length() > MAX_README) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "README 不能超过 " + MAX_README + " 字");
+        }
+
+        project.setName(name);
+        project.setSlug(slug);
+        project.setDescription(description);
+        project.setStack(stack);
+        project.setStatus(status);
+        project.setRepo(blankToNull(form.repo()));
+        project.setDemo(blankToNull(form.demo()));
+        project.setPeriod(blankToNull(form.period()));
+        project.setRole(blankToNull(form.role()));
+        project.setReadme(readme);
+        project.setSortOrder(form.sortOrder() == null ? 0 : Math.max(0, form.sortOrder()));
+        project.setVisible(form.visible() == null || form.visible());
+    }
+
+    private static List<String> cleanList(List<String> raw) {
+        return raw == null ? List.of() : raw.stream()
+                .map(AdminProjectController::trimmed)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
+    private static void checkJsonFits(String label, List<String> value, int max) {
+        try {
+            if (JSON.writeValueAsString(value).length() > max) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "内容过多");
+            }
+        } catch (JsonProcessingException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, label + "无法序列化");
+        }
+    }
+
+    private static String blankToNull(String value) {
+        String text = trimmed(value);
+        return text.isEmpty() ? null : text;
+    }
+
+    private static String trimmed(String raw) {
+        return raw == null ? "" : raw.trim();
+    }
+
+    public record ProjectForm(String name,
+                              String slug,
+                              String desc,
+                              List<String> stack,
+                              String status,
+                              String repo,
+                              String demo,
+                              String period,
+                              String role,
+                              String readme,
+                              Integer sortOrder,
+                              Boolean visible) {
+    }
+}

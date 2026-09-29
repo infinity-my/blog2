@@ -1,0 +1,34 @@
+import { ElMessageBox } from 'element-plus'
+
+/**
+ * 通用确认弹窗：全后台统一走居中的大号弹窗（样式见 admin.css 的 .delete-confirm），
+ * 不用贴着按钮的小气泡 popconfirm。确认返回 true，取消 / 关闭返回 false。
+ * autofocus 关掉确认键的默认聚焦，避免连按回车误操作。
+ * @param {string} message
+ * @param {string} [title]
+ * @param {string} [confirmText]
+ * @param {object} [options] 透传给 ElMessageBox 的额外配置（如危险操作的 confirmButtonClass）
+ * @returns {Promise<boolean>}
+ */
+export function confirmAction(message, title = '确认操作', confirmText = '确定', options = {}) {
+  return ElMessageBox.confirm(message, title, {
+    type: 'warning',
+    confirmButtonText: confirmText,
+    cancelButtonText: '取消',
+    customClass: 'delete-confirm',
+    autofocus: false,
+    ...options,
+  })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
+ * 删除确认：确认键标红。确认返回 true，取消 / 关闭返回 false。
+ * @param {string} message
+ * @param {string} [title]
+ * @returns {Promise<boolean>}
+ */
+export function confirmDelete(message, title = '删除确认') {
+  return confirmAction(message, title, '删除', { confirmButtonClass: 'el-button--danger' })
+}

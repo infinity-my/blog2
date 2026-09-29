@@ -1,0 +1,27 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 文章评论；发言人是登录用户，user_id 在账号注销后置空（评论作为公开内容保留） */
+@Data
+@TableName("comment")
+public class Comment {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private Long articleId;
+
+    private Long userId;
+
+    private String name;
+
+    private String content;
+
+    private LocalDateTime createdAt;
+}

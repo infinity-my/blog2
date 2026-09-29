@@ -1,0 +1,235 @@
+package com.example.bloghd.support;
+
+import com.example.bloghd.entity.AlbumPhoto;
+import com.example.bloghd.entity.Article;
+import com.example.bloghd.entity.Essay;
+import com.example.bloghd.entity.Tag;
+import com.example.bloghd.mapper.AlbumPhotoMapper;
+import com.example.bloghd.mapper.ArticleMapper;
+import com.example.bloghd.mapper.EssayMapper;
+import com.example.bloghd.mapper.TagMapper;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * 标签池（tag 表）与内容标签的同步中枢。
+ * 文章/随笔/照片的 tags 列只存名称字符串数组，名称的「唯一事实」在池里：
+ * 内容保存带入的新标签自动入池（upsertAll），改名/删除在池里裁决后同步回内容。
+ * 博客规模的数据量很小，同步与计数直接全量内存扫描，不值得上 JSON 的 SQL 查询。
+ */
+@Component
+public class TagPool {
+
+    public static final int MAX_NAME = 50;
+
+    /** 单个标签在三类内容中的使用数 */
+    public record Usage(long article, long essay, long photo) {
+    }
+
+    private final TagMapper tagMapper;
+    private final ArticleMapper articleMapper;
+    private final EssayMapper essayMapper;
+    private final AlbumPhotoMapper albumPhotoMapper;
+
+    public TagPool(TagMapper tagMapper,
+                   ArticleMapper articleMapper,
+                   EssayMapper essayMapper,
+                   AlbumPhotoMapper albumPhotoMapper) {
+        this.tagMapper = tagMapper;
+        this.articleMapper = articleMapper;
+        this.essayMapper = essayMapper;
+        this.albumPhotoMapper = albumPhotoMapper;
+    }
+
+    /**
+     * 启动同步：内容里已存在但池里缺的标签补进来，保证池 ⊇ 内容标签。
+     * 开发库每次重建、老数据首次接入标签池都靠它兜底，幂等可重复执行。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void syncFromContent() {
+        Set<String> names = new LinkedHashSet<>();
+        articleMapper.selectList(null).forEach(a -> collect(a.getTags(), names));
+        essayMapper.selectList(null).forEach(e -> collect(e.getTags(), names));
+        albumPhotoMapper.selectList(null).forEach(p -> collect(p.getTags(), names));
+        upsertAll(names);
+    }
+
+    /** 池内标签列表（新加的在前），keyword 非空时按「包含」模糊过滤 */
+    public List<Tag> list(String keyword) {
+        List<Tag> tags = tagMapper.selectList(null).stream()
+                .sorted((a, b) -> Long.compare(b.getId(), a.getId()))
+                .toList();
+        if (keyword == null || keyword.isBlank()) {
+            return tags;
+        }
+        String needle = keyword.trim().toLowerCase();
+        return tags.stream()
+                .filter(t -> t.getName().toLowerCase().contains(needle))
+                .toList();
+    }
+
+    /** 各标签在三类内容中的使用数（key 为标签名） */
+    public Map<String, Usage> usageByName() {
+        Map<String, Usage> usage = new HashMap<>();
+        articleMapper.selectList(null).forEach(a -> addUsage(usage, a.getTags(), 0));
+        essayMapper.selectList(null).forEach(e -> addUsage(usage, e.getTags(), 1));
+        albumPhotoMapper.selectList(null).forEach(p -> addUsage(usage, p.getTags(), 2));
+        return usage;
+    }
+
+    public Tag create(String rawName) {
+        String name = checked(rawName);
+        if (findByName(name) != null) {
+            throw conflict(name);
+        }
+        Tag tag = new Tag();
+        tag.setName(name);
+        tagMapper.insert(tag);
+        return tag;
+    }
+
+    /** 改名：池里更新后同步替换三类内容中的旧名，替换结果顺手去重 */
+    public Tag rename(Long id, String rawName) {
+        Tag tag = require(id);
+        String name = checked(rawName);
+        if (name.equals(tag.getName())) {
+            return tag;
+        }
+        if (findByName(name) != null) {
+            throw conflict(name);
+        }
+        String oldName = tag.getName();
+        tag.setName(name);
+        tagMapper.updateById(tag);
+        replaceEverywhere(oldName, name);
+        return tag;
+    }
+
+    /** 删除：池里移除后把该标签从三类内容中一并剥掉 */
+    public void delete(Long id) {
+        Tag tag = require(id);
+        tagMapper.deleteById(id);
+        replaceEverywhere(tag.getName(), null);
+    }
+
+    /** 内容保存时同步：把池里还没有的标签补进来（内容控制器已各自校验过数量与长度） */
+    public void upsertAll(Collection<String> names) {
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        Set<String> existing = new LinkedHashSet<>(tagMapper.selectList(null).stream().map(Tag::getName).toList());
+        for (String raw : names) {
+            String name = raw == null ? "" : raw.trim();
+            if (name.isEmpty() || name.length() > MAX_NAME || existing.contains(name)) {
+                continue;
+            }
+            Tag tag = new Tag();
+            tag.setName(name);
+            tagMapper.insert(tag);
+            existing.add(name);
+        }
+    }
+
+    private Tag require(Long id) {
+        Tag tag = id == null ? null : tagMapper.selectById(id);
+        if (tag == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "标签不存在");
+        }
+        return tag;
+    }
+
+    private Tag findByName(String name) {
+        return tagMapper.selectList(null).stream()
+                .filter(t -> t.getName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static ResponseStatusException conflict(String name) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, "标签「" + name + "」已存在");
+    }
+
+    private static String checked(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty() || name.length() > MAX_NAME) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "标签名必填且不超过 " + MAX_NAME + " 字");
+        }
+        return name;
+    }
+
+    /** oldName → newName（null 表示删除）同步到三类内容；无变化的行跳过 */
+    private void replaceEverywhere(String oldName, String newName) {
+        for (Article article : articleMapper.selectList(null)) {
+            List<String> updated = replaced(article.getTags(), oldName, newName);
+            if (updated != null) {
+                article.setTags(updated);
+                articleMapper.updateById(article);
+            }
+        }
+        for (Essay essay : essayMapper.selectList(null)) {
+            List<String> updated = replaced(essay.getTags(), oldName, newName);
+            if (updated != null) {
+                essay.setTags(updated);
+                essayMapper.updateById(essay);
+            }
+        }
+        for (AlbumPhoto photo : albumPhotoMapper.selectList(null)) {
+            List<String> updated = replaced(photo.getTags(), oldName, newName);
+            if (updated != null) {
+                photo.setTags(updated);
+                albumPhotoMapper.updateById(photo);
+            }
+        }
+    }
+
+    /** 返回替换后的新列表；没有旧名时返回 null（省一次 update） */
+    private static List<String> replaced(List<String> tags, String oldName, String newName) {
+        if (tags == null || !tags.contains(oldName)) {
+            return null;
+        }
+        List<String> result = new ArrayList<>();
+        for (String tag : tags) {
+            if (tag.equals(oldName)) {
+                if (newName != null && !result.contains(newName)) {
+                    result.add(newName);
+                }
+            } else if (!result.contains(tag)) {
+                result.add(tag);
+            }
+        }
+        return result;
+    }
+
+    private static void collect(List<String> tags, Set<String> into) {
+        if (tags != null) {
+            tags.stream().filter(t -> !t.isBlank()).forEach(into::add);
+        }
+    }
+
+    private static void addUsage(Map<String, Usage> usage, List<String> tags, int slot) {
+        if (tags == null) {
+            return;
+        }
+        for (String tag : new LinkedHashSet<>(tags)) { // 同一条内容里的重复标签只记一次
+            Usage u = usage.getOrDefault(tag, new Usage(0, 0, 0));
+            Usage updated = switch (slot) {
+                case 0 -> new Usage(u.article() + 1, u.essay(), u.photo());
+                case 1 -> new Usage(u.article(), u.essay() + 1, u.photo());
+                default -> new Usage(u.article(), u.essay(), u.photo() + 1);
+            };
+            usage.put(tag, updated);
+        }
+    }
+}

@@ -1,0 +1,24 @@
+package com.example.bloghd.support;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class GlobalExceptionHandlerTest {
+
+    /** 约束违例兜底成 400 + 稳定错误码，不再走 Spring 默认的 500 */
+    @Test
+    void integrityViolationBecomes400WithStableCode() {
+        ResponseEntity<Map<String, String>> response = new GlobalExceptionHandler()
+                .handleDataIntegrity(new DataIntegrityViolationException("value too long"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        assertThat(response.getBody())
+                .containsEntry("code", "DATA_CONFLICT")
+                .containsKey("message");
+    }
+}

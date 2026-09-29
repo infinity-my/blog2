@@ -1,0 +1,101 @@
+package com.example.bloghd.support;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.LikeRecord;
+import com.example.bloghd.mapper.LikeRecordMapper;
+import com.example.bloghd.security.AuthPrincipal;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+/**
+ * 点赞的去重裁决：目标计数不再由前端报数，先看 like_record 里该访客是否点过。
+ * 访客身份：登录用户按账号（u:{userId}），匿名按长效 cookie（v:{uuid}）——
+ * cookie 缺失时在响应里种一个，之后同一浏览器就稳定在同一身份上。
+ */
+@Component
+public class LikeSupport {
+
+    public static final String COOKIE_NAME = "visitor_id";
+    private static final Duration COOKIE_TTL = Duration.ofDays(365);
+
+    public static final String TYPE_MESSAGE = "message";
+    public static final String TYPE_REPLY = "reply";
+
+    private final LikeRecordMapper likeRecordMapper;
+
+    public LikeSupport(LikeRecordMapper likeRecordMapper) {
+        this.likeRecordMapper = likeRecordMapper;
+    }
+
+    /** 当前请求的访客身份键；匿名且无 cookie 时生成新身份并种 cookie */
+    public String visitorKey(AuthPrincipal user, HttpServletRequest request, HttpServletResponse response) {
+        if (user != null) {
+            return "u:" + user.id();
+        }
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (COOKIE_NAME.equals(cookie.getName()) && !cookie.getValue().isBlank()) {
+                    return "v:" + cookie.getValue();
+                }
+            }
+        }
+        String fresh = UUID.randomUUID().toString();
+        response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from(COOKIE_NAME, fresh)
+                .httpOnly(true)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(COOKIE_TTL)
+                .build()
+                .toString());
+        return "v:" + fresh;
+    }
+
+    /** 幂等切换一条点赞记录；返回 true 表示这是有效切换，计数需要 +1/-1 */
+    public boolean toggle(String targetType, long targetId, boolean liked, String visitorKey) {
+        LambdaQueryWrapper<LikeRecord> qw = new LambdaQueryWrapper<LikeRecord>()
+                .eq(LikeRecord::getTargetType, targetType)
+                .eq(LikeRecord::getTargetId, targetId)
+                .eq(LikeRecord::getVisitorKey, visitorKey);
+        if (liked) {
+            if (likeRecordMapper.selectCount(qw) > 0) {
+                return false;
+            }
+            LikeRecord record = new LikeRecord();
+            record.setTargetType(targetType);
+            record.setTargetId(targetId);
+            record.setVisitorKey(visitorKey);
+            record.setCreatedAt(LocalDateTime.now().withNano(0));
+            try {
+                likeRecordMapper.insert(record);
+            } catch (DuplicateKeyException e) {
+                // 双击并发：唯一索引兜底，视为重复点赞
+                return false;
+            }
+            return true;
+        }
+        return likeRecordMapper.delete(qw) > 0;
+    }
+
+    /** 当前访客在指定类型下已点赞的目标 id 集合，供列表接口回显 liked */
+    public Set<Long> likedTargetIds(String targetType, String visitorKey) {
+        return likeRecordMapper.selectList(new LambdaQueryWrapper<LikeRecord>()
+                        .eq(LikeRecord::getTargetType, targetType)
+                        .eq(LikeRecord::getVisitorKey, visitorKey)
+                        .select(LikeRecord::getTargetId))
+                .stream()
+                .map(LikeRecord::getTargetId)
+                .collect(Collectors.toSet());
+    }
+}

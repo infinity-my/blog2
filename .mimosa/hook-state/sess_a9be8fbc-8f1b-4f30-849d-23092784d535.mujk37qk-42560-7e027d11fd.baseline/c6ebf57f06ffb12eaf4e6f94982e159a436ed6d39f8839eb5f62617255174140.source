@@ -1,0 +1,28 @@
+package com.example.bloghd.dto;
+
+/**
+ * 评论按文章的 GROUP BY 聚合行（CommentMapper.countByArticle 的结果类型）。
+ * 不用 selectMaps：H2 与 MySQL 返回的列标签大小写不一致，Map 取键会踩坑；
+ * 驼峰映射（map-underscore-to-camel-case）对 bean 是大小写不敏感的，两边都稳。
+ */
+public class ArticleCommentCount {
+
+    private Long articleId;
+    private Long cnt;
+
+    public Long getArticleId() {
+        return articleId;
+    }
+
+    public void setArticleId(Long articleId) {
+        this.articleId = articleId;
+    }
+
+    public Long getCnt() {
+        return cnt;
+    }
+
+    public void setCnt(Long cnt) {
+        this.cnt = cnt;
+    }
+}

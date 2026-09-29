@@ -1,0 +1,32 @@
+package com.example.bloghd.security;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+
+/**
+ * 当前登录身份的取用点。
+ * 匿名访问的 principal 是字符串而非 AuthPrincipal，据此把它们排除掉。
+ */
+@Component
+public class CurrentUser {
+
+    /** 未登录返回 null，供可匿名访问的接口使用 */
+    public AuthPrincipal orNull() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AuthPrincipal principal) {
+            return principal;
+        }
+        return null;
+    }
+
+    /** 过滤链已要求登录，这里的兜底是防止放行规则变化后 NPE */
+    public AuthPrincipal require() {
+        AuthPrincipal principal = orNull();
+        if (principal == null) {
+            throw new AuthException(HttpStatus.UNAUTHORIZED, "NOT_AUTHENTICATED", "还没登录");
+        }
+        return principal;
+    }
+}

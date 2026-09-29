@@ -1,0 +1,320 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.entity.ResumeContent;
+import com.example.bloghd.mapper.ResumeContentMapper;
+import com.example.bloghd.security.ResumeGateRateLimiter;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(properties = "blog.resume.password=secret-pass")
+@ActiveProfiles("test")
+class ResumeControllerTest {
+
+    // 管理员口令运行期随机生成：源码不出现凭据字面量，扫描器也不会误报
+    private static final String ADMIN_USERNAME = "admin";
+    private static final String ADMIN_PASSWORD = "pwd-" + UUID.randomUUID().toString().substring(0, 12);
+
+    @DynamicPropertySource
+    static void adminProps(DynamicPropertyRegistry registry) {
+        registry.add("blog.admin.username", () -> ADMIN_USERNAME);
+        registry.add("blog.admin.password", () -> ADMIN_PASSWORD);
+    }
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private ResumeContentMapper resumeContentMapper;
+
+    @Autowired
+    private ResumeGateRateLimiter gateLimiter;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        resumeContentMapper.delete(null);
+        // 限流器是单例，失败记录会跨测试留存，先清干净保证确定性
+        gateLimiter.reset("127.0.0.1");
+        csrfCookie = mockMvc.perform(get("/api/posts")).andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    /** 简历解锁也挂了 CSRF，POST 统一带 token */
+    private ResultActions unlock(MockHttpServletRequestBuilder builder) throws Exception {
+        return mockMvc.perform(builder
+                .contentType(MediaType.APPLICATION_JSON)
+                .cookie(csrfCookie)
+                .header("X-XSRF-TOKEN", csrfCookie.getValue()));
+    }
+
+    private MockHttpServletRequestBuilder unlockPost(String body) {
+        return post("/api/resume/unlock").content(body);
+    }
+
+    /** 换出口 IP 发解锁请求：限流按 IP 记账，测试里用独立 IP 避免污染其他用例共用的 127.0.0.1 */
+    private ResultActions unlockFrom(String ip, String body) throws Exception {
+        return unlock(unlockPost(body).with(request -> {
+            request.setRemoteAddr(ip);
+            return request;
+        }));
+    }
+
+    private MockHttpServletRequestBuilder csrf(MockHttpServletRequestBuilder builder) {
+        return builder.cookie(csrfCookie).header("X-XSRF-TOKEN", csrfCookie.getValue());
+    }
+
+    private MockHttpServletRequestBuilder jsonPost(String path, String body) {
+        return csrf(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpServletRequestBuilder jsonPut(String path, String body) {
+        return csrf(put(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpSession adminSession() throws Exception {
+        String body = "{\"username\":\"%s\",\"password\":\"%s\"}".formatted(ADMIN_USERNAME, ADMIN_PASSWORD);
+        MvcResult result = mockMvc.perform(jsonPost("/api/admin/login", body))
+                .andExpect(status().isOk())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    private MockHttpSession visitorSession() throws Exception {
+        String email = "visitor-%s@example.com".formatted(UUID.randomUUID().toString().substring(0, 8));
+        String body = "{\"email\":\"%s\",\"name\":\"访客\",\"password\":\"pass-12345678\"}".formatted(email);
+        MvcResult result = mockMvc.perform(jsonPost("/api/auth/register", body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    /** 库里没有内容时接口无从返回，先种一行 */
+    private void seedResumeContent() {
+        ResumeContent row = new ResumeContent();
+        row.setPayload("{\"updatedAt\":\"2026-09-24\",\"profile\":{\"name\":\"陈屿\"},\"metrics\":[]}");
+        row.setUpdatedAt(LocalDateTime.of(2026, 9, 24, 0, 0));
+        resumeContentMapper.insert(row);
+    }
+
+    @Test
+    void unlockAcceptsCorrectPassword() throws Exception {
+        unlock(unlockPost("{\"password\":\"secret-pass\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unlocked").value(true));
+    }
+
+    @Test
+    void unlockTrimsWhitespaceBeforeComparing() throws Exception {
+        unlock(unlockPost("{\"password\":\"  secret-pass  \"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void unlockRejectsWrongPassword() throws Exception {
+        unlock(unlockPost("{\"password\":\"secret\"}"))
+                .andExpect(status().isUnauthorized());
+        unlock(unlockPost("{\"password\":\"Secret-Pass\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void unlockRejectsBlankPassword() throws Exception {
+        unlock(unlockPost("{\"password\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+        unlock(unlockPost("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void contentRequiresUnlockFirst() throws Exception {
+        seedResumeContent();
+
+        // 从没解锁过：直接取内容按未授权处理
+        mockMvc.perform(get("/api/resume/content"))
+                .andExpect(status().isUnauthorized());
+
+        // 口令错了也不留下解锁标记
+        MockHttpSession failed = new MockHttpSession();
+        unlock(unlockPost("{\"password\":\"wrong\"}").session(failed))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/resume/content").session(failed))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void contentReturnsFullPayloadAfterUnlock() throws Exception {
+        seedResumeContent();
+
+        MockHttpSession session = new MockHttpSession();
+        unlock(unlockPost("{\"password\":\"secret-pass\"}").session(session))
+                .andExpect(status().isOk());
+
+        // 同一会话内取到整包内容；新会话（服务重启/过期）则仍被拦下
+        mockMvc.perform(get("/api/resume/content").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.updatedAt").value("2026-09-24"))
+                .andExpect(jsonPath("$.profile.name").value("陈屿"));
+
+        mockMvc.perform(get("/api/resume/content").session(new MockHttpSession()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void contentIsNotFoundWhenNothingConfigured() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        unlock(unlockPost("{\"password\":\"secret-pass\"}").session(session))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/resume/content").session(session))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void lockRemovesServerSideUnlockFlag() throws Exception {
+        seedResumeContent();
+
+        MockHttpSession session = new MockHttpSession();
+        unlock(unlockPost("{\"password\":\"secret-pass\"}").session(session))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/resume/content").session(session))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(jsonPost("/api/resume/lock", "{}").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.locked").value(true));
+
+        // 服务端标记已摘掉：同一会话再取正文按未授权处理
+        mockMvc.perform(get("/api/resume/content").session(session))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void unlockRateLimitsRepeatedFailuresPerIp() throws Exception {
+        seedResumeContent();
+
+        String attackerIp = "203.0.113.9";
+        for (int i = 0; i < 5; i++) {
+            unlockFrom(attackerIp, "{\"password\":\"wrong\"}")
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 第 6 次起直接 429，连正确口令也进不来，直到窗口滑动或计数被清
+        unlockFrom(attackerIp, "{\"password\":\"wrong\"}")
+                .andExpect(status().isTooManyRequests());
+        unlockFrom(attackerIp, "{\"password\":\"secret-pass\"}")
+                .andExpect(status().isTooManyRequests());
+
+        gateLimiter.reset(attackerIp);
+        unlockFrom(attackerIp, "{\"password\":\"secret-pass\"}")
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void adminResumeEndpointsRejectAnonymousAndVisitors() throws Exception {
+        // 匿名：入口点回 401
+        mockMvc.perform(get("/api/admin/resume"))
+                .andExpect(status().isUnauthorized());
+
+        // 已登录访客：角色不对，回 403
+        MockHttpSession visitor = visitorSession();
+        mockMvc.perform(get("/api/admin/resume").session(visitor))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":null}").session(visitor))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminReadsEmptyResumeThenSavesAndClears() throws Exception {
+        MockHttpSession admin = adminSession();
+
+        mockMvc.perform(get("/api/admin/resume").session(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value(nullValue()));
+
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":" + RESUME_JSON + "}").session(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.profile.name").value("陈屿"))
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
+
+        // 解锁后的公开接口拿到的是刚保存的整包，updatedAt 是服务端盖的保存时间
+        MockHttpSession reader = new MockHttpSession();
+        unlock(unlockPost("{\"password\":\"secret-pass\"}").session(reader))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/resume/content").session(reader))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.name").value("陈屿"))
+                .andExpect(jsonPath("$.updatedAt").isNotEmpty());
+
+        // 再保存一次走更新而不是新增，库里始终只有一行
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":" + RESUME_JSON + "}").session(admin))
+                .andExpect(status().isOk());
+        assertThat(resumeContentMapper.selectCount(null)).isEqualTo(1L);
+
+        // content=null 清空：公开接口回到「未配置」404
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":null}").session(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value(nullValue()));
+        mockMvc.perform(get("/api/resume/content").session(reader))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void adminUpdateValidatesContentShape() throws Exception {
+        MockHttpSession admin = adminSession();
+
+        // 不是 JSON 对象
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":\"一坨文本\"}").session(admin))
+                .andExpect(status().isBadRequest());
+        // 缺 profile.name——前台简历页的第一块就是它，缺了保存出去就是白屏
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":{\"metrics\":[]}}").session(admin))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(jsonPut("/api/admin/resume", "{\"content\":{\"profile\":{\"name\":\"  \"}}}").session(admin))
+                .andExpect(status().isBadRequest());
+
+        assertThat(resumeContentMapper.selectCount(null)).isEqualTo(0L);
+    }
+
+    private static final String RESUME_JSON = """
+            {
+              "profile": {"name": "陈屿", "title": "高级前端工程师"},
+              "metrics": [],
+              "summary": ["概述"],
+              "experience": [],
+              "projects": [],
+              "skills": [],
+              "education": [],
+              "extras": []
+            }
+            """;
+}

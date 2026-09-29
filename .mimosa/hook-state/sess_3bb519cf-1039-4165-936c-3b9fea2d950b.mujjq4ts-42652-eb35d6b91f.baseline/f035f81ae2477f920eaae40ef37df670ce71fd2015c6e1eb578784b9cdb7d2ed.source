@@ -1,0 +1,228 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.dto.MessageView;
+import com.example.bloghd.entity.AppUser;
+import com.example.bloghd.entity.Comment;
+import com.example.bloghd.entity.LikeRecord;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.entity.VisitLog;
+import com.example.bloghd.mapper.AppUserMapper;
+import com.example.bloghd.mapper.CommentMapper;
+import com.example.bloghd.mapper.LikeRecordMapper;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import com.example.bloghd.mapper.VisitLogMapper;
+import com.example.bloghd.security.AuthException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * 注册用户管理：列表（最新在前，带发言计数）、重置密码、删除。
+ * 删除沿用访客自助注销的语义 —— 评论/留言是公开资产，置空归属保留内容，
+ * 点赞身份随账号消失；不提供编辑昵称/邮箱，展示信息以用户自助为准。
+ */
+@RestController
+@RequestMapping("/api/admin/users")
+public class AdminUserController {
+
+    private static final int MIN_PASSWORD = 6;
+    // BCrypt 只取前 72 字节，超长会被静默截断，所以在入口就挡掉
+    private static final int MAX_PASSWORD = 72;
+
+    private final AppUserMapper appUserMapper;
+    private final MessageMapper messageMapper;
+    private final MessageReplyMapper messageReplyMapper;
+    private final CommentMapper commentMapper;
+    private final LikeRecordMapper likeRecordMapper;
+    private final VisitLogMapper visitLogMapper;
+    private final PasswordEncoder passwordEncoder;
+
+    public AdminUserController(AppUserMapper appUserMapper,
+                               MessageMapper messageMapper,
+                               MessageReplyMapper messageReplyMapper,
+                               CommentMapper commentMapper,
+                               LikeRecordMapper likeRecordMapper,
+                               VisitLogMapper visitLogMapper,
+                               PasswordEncoder passwordEncoder) {
+        this.appUserMapper = appUserMapper;
+        this.messageMapper = messageMapper;
+        this.messageReplyMapper = messageReplyMapper;
+        this.commentMapper = commentMapper;
+        this.likeRecordMapper = likeRecordMapper;
+        this.visitLogMapper = visitLogMapper;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @GetMapping
+    public List<AdminUserView> list() {
+        List<AppUser> users = appUserMapper.selectList(new LambdaQueryWrapper<AppUser>()
+                .orderByDesc(AppUser::getCreatedAt, AppUser::getId));
+        // 发言计数用分组查询一次拉全量，不在循环里对每个用户各数一遍
+        Map<Long, Long> commentCounts = groupCounts(commentMapper.selectMaps(new QueryWrapper<Comment>()
+                .select("user_id", "count(*) as cnt")
+                .isNotNull("user_id")
+                .groupBy("user_id")));
+        Map<Long, Long> messageCounts = groupCounts(messageMapper.selectMaps(new QueryWrapper<Message>()
+                .select("user_id", "count(*) as cnt")
+                .isNotNull("user_id")
+                .groupBy("user_id")));
+        Map<Long, Long> replyCounts = groupCounts(messageReplyMapper.selectMaps(new QueryWrapper<MessageReply>()
+                .select("user_id", "count(*) as cnt")
+                .isNotNull("user_id")
+                .groupBy("user_id")));
+        // 浏览统计同样一次分组拉全量：浏览次数 + 最近一次浏览时间
+        Map<Long, Long> visitCounts = new HashMap<>();
+        Map<Long, LocalDateTime> lastVisits = new HashMap<>();
+        for (Map<String, Object> row : visitLogMapper.selectMaps(new QueryWrapper<VisitLog>()
+                .select("user_id", "count(*) as cnt", "max(created_at) as last_at")
+                .isNotNull("user_id")
+                .groupBy("user_id"))) {
+            Long userId = null;
+            Long count = 0L;
+            Object lastAt = null;
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                String key = entry.getKey().toLowerCase(Locale.ROOT);
+                if (entry.getValue() == null) continue;
+                switch (key) {
+                    case "user_id" -> userId = ((Number) entry.getValue()).longValue();
+                    case "cnt" -> count = ((Number) entry.getValue()).longValue();
+                    case "last_at" -> lastAt = entry.getValue();
+                }
+            }
+            if (userId != null) {
+                visitCounts.put(userId, count);
+                lastVisits.put(userId, asTime(lastAt));
+            }
+        }
+
+        return users.stream()
+                .map(u -> new AdminUserView(u.getId(), u.getEmail(), u.getName(),
+                        MessageView.stamp(u.getCreatedAt()),
+                        commentCounts.getOrDefault(u.getId(), 0L),
+                        messageCounts.getOrDefault(u.getId(), 0L) + replyCounts.getOrDefault(u.getId(), 0L),
+                        visitCounts.getOrDefault(u.getId(), 0L),
+                        stamp(lastVisits.get(u.getId()))))
+                .toList();
+    }
+
+    /** 重置密码：用户下次登录用新密码，已发放的旧会话不受影响 */
+    @PutMapping("/{id}/password")
+    public ResponseEntity<Void> resetPassword(@PathVariable Long id, @RequestBody PasswordForm form) {
+        String password = form.password() == null ? "" : form.password();
+        validatePassword(password);
+        if (appUserMapper.selectById(id) == null) {
+            throw new AuthException(HttpStatus.NOT_FOUND, "NOT_FOUND", "用户不存在");
+        }
+        AppUser update = new AppUser();
+        update.setId(id);
+        update.setPasswordHash(passwordEncoder.encode(password));
+        appUserMapper.updateById(update);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (appUserMapper.selectById(id) == null) {
+            throw new AuthException(HttpStatus.NOT_FOUND, "NOT_FOUND", "用户不存在");
+        }
+        // 与访客自助注销同一套处理：发言置空归属保留，点赞记录随号消失
+        messageMapper.update(null, Wrappers.<Message>lambdaUpdate()
+                .set(Message::getUserId, null)
+                .eq(Message::getUserId, id));
+        messageReplyMapper.update(null, Wrappers.<MessageReply>lambdaUpdate()
+                .set(MessageReply::getUserId, null)
+                .eq(MessageReply::getUserId, id));
+        commentMapper.update(null, Wrappers.<Comment>lambdaUpdate()
+                .set(Comment::getUserId, null)
+                .eq(Comment::getUserId, id));
+        likeRecordMapper.delete(new LambdaQueryWrapper<LikeRecord>()
+                .eq(LikeRecord::getVisitorKey, "u:" + id));
+        appUserMapper.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 分组计数行转 Map。selectMaps 的键是 JDBC 列标签，H2 会全大写而 MySQL 保持小写，
+     * 这里按小写归一后取值，两种库都不踩空。
+     */
+    private static Map<Long, Long> groupCounts(List<Map<String, Object>> rows) {
+        Map<Long, Long> counts = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Long userId = null;
+            Long count = 0L;
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                String key = entry.getKey().toLowerCase(Locale.ROOT);
+                if (entry.getValue() == null) continue;
+                if (key.equals("user_id")) {
+                    userId = ((Number) entry.getValue()).longValue();
+                } else if (key.equals("cnt")) {
+                    count = ((Number) entry.getValue()).longValue();
+                }
+            }
+            if (userId != null) {
+                counts.put(userId, count);
+            }
+        }
+        return counts;
+    }
+
+    /** selectMaps 里的时间列：驱动差异可能给 LocalDateTime 或 Timestamp，归一成前者 */
+    private static LocalDateTime asTime(Object value) {
+        if (value instanceof LocalDateTime time) return time;
+        if (value instanceof java.sql.Timestamp ts) return ts.toLocalDateTime();
+        return null;
+    }
+
+    private static String stamp(LocalDateTime time) {
+        return time == null ? null : MessageView.stamp(time);
+    }
+
+    private static void validatePassword(String password) {
+        if (password.length() < MIN_PASSWORD || password.length() > MAX_PASSWORD) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "INVALID_PASSWORD",
+                    "密码长度需要 " + MIN_PASSWORD + " 到 " + MAX_PASSWORD + " 位");
+        }
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<AuthError> handleAuthException(AuthException e) {
+        return ResponseEntity.status(e.status()).body(new AuthError(e.code(), e.getMessage()));
+    }
+
+    public record PasswordForm(String password) {
+    }
+
+    public record AdminUserView(Long id,
+                                String email,
+                                String name,
+                                String time,
+                                Long commentCount,
+                                Long messageCount,
+                                Long visitCount,
+                                String lastVisit) {
+    }
+
+    public record AuthError(String code, String message) {
+    }
+}

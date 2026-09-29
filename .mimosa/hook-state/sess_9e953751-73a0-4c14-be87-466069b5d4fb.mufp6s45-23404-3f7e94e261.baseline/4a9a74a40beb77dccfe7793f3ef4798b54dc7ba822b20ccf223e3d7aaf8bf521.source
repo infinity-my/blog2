@@ -1,0 +1,51 @@
+package com.example.bloghd.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.bloghd.entity.Message;
+import com.example.bloghd.entity.MessageReply;
+import com.example.bloghd.mapper.MessageMapper;
+import com.example.bloghd.mapper.MessageReplyMapper;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+/**
+ * 后台的留言治理接口：目前只有删除（清垃圾留言）。
+ * 删主楼连同回复一起删；删回复只动回复自己。
+ */
+@RestController
+@RequestMapping("/api/admin/messages")
+public class AdminMessageController {
+
+    private final MessageMapper messageMapper;
+    private final MessageReplyMapper messageReplyMapper;
+
+    public AdminMessageController(MessageMapper messageMapper, MessageReplyMapper messageReplyMapper) {
+        this.messageMapper = messageMapper;
+        this.messageReplyMapper = messageReplyMapper;
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (messageMapper.selectById(id) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "留言不存在");
+        }
+        // 先删回复再删主楼，避免留下挂在已消失主楼下的孤儿回复
+        messageReplyMapper.delete(new LambdaQueryWrapper<MessageReply>()
+                .eq(MessageReply::getMessageId, id));
+        messageMapper.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/replies/{id}")
+    public ResponseEntity<Void> deleteReply(@PathVariable Long id) {
+        if (messageReplyMapper.deleteById(id) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "回复不存在");
+        }
+        return ResponseEntity.noContent().build();
+    }
+}

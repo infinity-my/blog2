@@ -1,0 +1,28 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.Project;
+
+import java.util.List;
+
+/** 项目视图，desc 为项目简介（表列 description，desc 是 SQL 保留字） */
+public record ProjectView(
+        Long id,
+        String name,
+        String slug,
+        String desc,
+        List<String> stack,
+        String status,
+        String repo,
+        String demo,
+        String period,
+        String role,
+        String readme,
+        Integer sortOrder,
+        Boolean visible) {
+
+    public static ProjectView from(Project p) {
+        return new ProjectView(p.getId(), p.getName(), p.getSlug(), p.getDescription(),
+                p.getStack(), p.getStatus(), p.getRepo(), p.getDemo(), p.getPeriod(), p.getRole(),
+                p.getReadme(), p.getSortOrder(), p.getVisible());
+    }
+}

@@ -1,0 +1,30 @@
+package com.example.bloghd.dto;
+
+import com.example.bloghd.entity.Message;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
+/** 留言视图：time 为 yyyy-MM-dd HH:mm 字符串，前端直接展示与排序；liked 是当前访客是否已赞 */
+public record MessageView(
+        Long id,
+        String name,
+        Long userId,
+        String time,
+        String content,
+        Integer likes,
+        boolean liked,
+        List<ReplyView> replies) {
+
+    public static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    public static MessageView from(Message m, List<ReplyView> replies, boolean liked) {
+        return new MessageView(m.getId(), m.getName(), m.getUserId(), stamp(m.getCreatedAt()),
+                m.getContent(), m.getLikes(), liked, replies);
+    }
+
+    public static String stamp(LocalDateTime time) {
+        return time.format(STAMP);
+    }
+}

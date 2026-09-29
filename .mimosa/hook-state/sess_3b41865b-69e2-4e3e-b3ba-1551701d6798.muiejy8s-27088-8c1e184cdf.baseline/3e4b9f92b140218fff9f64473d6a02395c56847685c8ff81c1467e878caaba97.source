@@ -1,0 +1,275 @@
+package com.example.bloghd.controller;
+
+import com.example.bloghd.mapper.AlbumPhotoMapper;
+import com.example.bloghd.mapper.EssayMapper;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.Cookie;
+import org.hamcrest.Matchers;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.nio.file.Path;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 后台内容维护接口（上传/相册/随笔/站点配置）。
+ * 上传目录指到 JUnit 临时目录，测试不污染 data/assets。
+ */
+@SpringBootTest
+@ActiveProfiles("test")
+class AdminContentApiTest {
+
+    @TempDir
+    static Path tempDir;
+
+    // 管理员口令运行期随机生成；上传上限压到 1MB，超限用例不必构造 10MB 大文件
+    private static final String ADMIN_PASSWORD = "pwd-" + UUID.randomUUID().toString().substring(0, 12);
+
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry registry) {
+        registry.add("blog.admin.password", () -> ADMIN_PASSWORD);
+        registry.add("blog.assets.dir", () -> tempDir.toString());
+        registry.add("blog.assets.max-size-mb", () -> "1");
+    }
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private AlbumPhotoMapper albumPhotoMapper;
+
+    @Autowired
+    private EssayMapper essayMapper;
+
+    private MockMvc mockMvc;
+    private Cookie csrfCookie;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // 手工构建的 MockMvc 不会挂载安全过滤链，必须显式加上，否则鉴权被整体绕过
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(context.getBean("springSecurityFilterChain", Filter.class))
+                .build();
+        albumPhotoMapper.delete(null);
+        essayMapper.delete(null);
+        csrfCookie = mockMvc.perform(get("/api/posts")).andReturn().getResponse().getCookie("XSRF-TOKEN");
+    }
+
+    /** multipart 与普通 builder 是兄弟类型，csrf 用泛型同时喂饱两种 */
+    private <B extends AbstractMockHttpServletRequestBuilder<B>> B csrf(B builder) {
+        return builder.cookie(csrfCookie).header("X-XSRF-TOKEN", csrfCookie.getValue());
+    }
+
+    private MockHttpServletRequestBuilder jsonPost(String path, String body) {
+        return csrf(post(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpServletRequestBuilder jsonPut(String path, String body) {
+        return csrf(put(path).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private MockHttpSession adminSession() throws Exception {
+        MvcResult result = mockMvc.perform(jsonPost("/api/admin/login",
+                        "{\"username\":\"admin\",\"password\":\"%s\"}".formatted(ADMIN_PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return (MockHttpSession) result.getRequest().getSession(false);
+    }
+
+    private MockMultipartHttpServletRequestBuilder upload(MockMultipartFile file, String folder) {
+        return csrf(multipart("/api/admin/upload")
+                .file(file)
+                .param("folder", folder));
+    }
+
+    @Test
+    void uploadRequiresAdminAndSavesFileUnderAssets() throws Exception {
+        // 匿名：POST 先被 CSRF 拦下（403），带 token 但没登录才轮到鉴权回 401
+        mockMvc.perform(multipart("/api/admin/upload")
+                        .file(new MockMultipartFile("file", "a.jpg", "image/jpeg", new byte[]{1})))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/site"))
+                .andExpect(status().isUnauthorized());
+
+        MockHttpSession session = adminSession();
+        MvcResult result = mockMvc.perform(upload(
+                        new MockMultipartFile("file", "photo.JPG", "image/jpeg", new byte[]{1, 2, 3}),
+                        "album")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value(Matchers.matchesPattern(
+                        "/api/assets/album/[a-f0-9]{32}\\.jpg")))
+                .andReturn();
+        String url = result.getResponse().getContentAsString()
+                .replaceAll(".*\"url\":\"([^\"]+)\".*", "$1");
+        String relative = url.substring("/api/assets/".length());
+        assertThat(tempDir.resolve(relative)).hasBinaryContent(new byte[]{1, 2, 3});
+    }
+
+    @Test
+    void uploadValidatesExtensionAndSize() throws Exception {
+        MockHttpSession session = adminSession();
+
+        // 扩展名白名单之外一律拒绝
+        mockMvc.perform(upload(new MockMultipartFile("file", "a.txt", "text/plain", "hi".getBytes()), "album")
+                        .session(session))
+                .andExpect(status().isBadRequest());
+
+        // 测试上限 1MB：超限拒绝
+        mockMvc.perform(upload(new MockMultipartFile("file", "big.png", "image/png", new byte[1024 * 1024 + 1]),
+                        "album").session(session))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void photoCrudRoundtripThroughPublicAlbum() throws Exception {
+        MockHttpSession session = adminSession();
+
+        String body = """
+                {
+                  "src": "/api/assets/album/x.jpg",
+                  "width": 1200,
+                  "height": 800,
+                  "title": "海边日落",
+                  "shootDate": "2026-08-01",
+                  "location": "深圳",
+                  "shot": "A7M3",
+                  "caption": "夕阳落在海平线上",
+                  "tags": ["风景", "海"]
+                }
+                """;
+        MvcResult created = mockMvc.perform(jsonPost("/api/admin/photos", body).session(session))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.date").value("2026-08-01"))
+                .andExpect(jsonPath("$.tags.length()").value(2))
+                .andReturn();
+        long id = Long.parseLong(created.getResponse().getContentAsString()
+                .replaceAll(".*\"id\":(\\d+).*", "$1"));
+
+        // 公开相册能看到
+        mockMvc.perform(get("/api/album/photos"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].title").value("海边日落"));
+
+        // 校验：src 不在素材目录下 / 尺寸无效 / 标题空白 → 400
+        mockMvc.perform(jsonPost("/api/admin/photos",
+                        body.replace("/api/assets/album/x.jpg", "https://cdn.example.com/x.jpg")).session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(jsonPost("/api/admin/photos", body.replace("\"width\": 1200", "\"width\": 0")).session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(jsonPost("/api/admin/photos", body.replace("海边日落", " ")).session(session))
+                .andExpect(status().isBadRequest());
+
+        String updated = body.replace("海边日落", "海边日出").replace("\"caption\": \"夕阳落在海平线上\"", "\"caption\": null");
+        mockMvc.perform(jsonPut("/api/admin/photos/" + id, updated).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("海边日出"))
+                .andExpect(jsonPath("$.caption").value(nullValue()));
+
+        mockMvc.perform(csrf(delete("/api/admin/photos/" + id)).session(session))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/album/photos"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        assertThat(albumPhotoMapper.selectList(null)).isEmpty();
+    }
+
+    @Test
+    void essayCrudRoundtripThroughPublicList() throws Exception {
+        MockHttpSession session = adminSession();
+
+        String body = """
+                {
+                  "essayDate": "2026-09-20",
+                  "mood": "平静",
+                  "location": "家中",
+                  "text": ["第一段想法。", "第二段想法。"],
+                  "images": [],
+                  "tags": ["日常"]
+                }
+                """;
+        MvcResult created = mockMvc.perform(jsonPost("/api/admin/essays", body).session(session))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.text.length()").value(2))
+                .andReturn();
+        long id = Long.parseLong(created.getResponse().getContentAsString()
+                .replaceAll(".*\"id\":(\\d+).*", "$1"));
+
+        mockMvc.perform(get("/api/essays"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].text[0]").value("第一段想法。"));
+
+        // 内容为空 → 400
+        mockMvc.perform(jsonPost("/api/admin/essays",
+                        body.replace("\"text\": [\"第一段想法。\", \"第二段想法。\"]", "\"text\": []")).session(session))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(csrf(delete("/api/admin/essays/" + id)).session(session))
+                .andExpect(status().isNoContent());
+        assertThat(essayMapper.selectList(null)).isEmpty();
+    }
+
+    @Test
+    void siteConfigPutReflectsOnPublicEndpoint() throws Exception {
+        MockHttpSession session = adminSession();
+
+        mockMvc.perform(jsonPut("/api/admin/site",
+                        "{\"backgrounds\":{\"home\":{\"image\":\"/api/assets/hero-new.jpg\","
+                                + "\"video\":\"/api/assets/hero-new.mp4\"}}}")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.backgrounds.home.image").value("/api/assets/hero-new.jpg"));
+
+        mockMvc.perform(get("/api/site"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.backgrounds.home.image").value("/api/assets/hero-new.jpg"))
+                .andExpect(jsonPath("$.backgrounds.home.video").value("/api/assets/hero-new.mp4"));
+
+        // 空串 = 清掉配置，前台回落本地素材
+        mockMvc.perform(jsonPut("/api/admin/site",
+                        "{\"backgrounds\":{\"home\":{\"image\":\"\",\"video\":\"\"}}}").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.backgrounds.home.image").value(nullValue()))
+                .andExpect(jsonPath("$.backgrounds.home.video").value(nullValue()));
+    }
+
+    @Test
+    void siteConfigRejectsUnknownPage() throws Exception {
+        MockHttpSession session = adminSession();
+
+        mockMvc.perform(jsonPut("/api/admin/site",
+                        "{\"backgrounds\":{\"nope\":{\"image\":\"/api/assets/x.jpg\",\"video\":null}}}")
+                        .session(session))
+                .andExpect(status().isBadRequest());
+    }
+}

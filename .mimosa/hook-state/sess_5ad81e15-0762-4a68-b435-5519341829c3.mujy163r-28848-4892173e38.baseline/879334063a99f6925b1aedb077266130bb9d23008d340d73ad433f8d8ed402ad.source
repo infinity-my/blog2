@@ -1,0 +1,37 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/** 留言下的回复（楼中楼），is_author 标记博主回复 */
+@Data
+@TableName("message_reply")
+public class MessageReply {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private Long messageId;
+
+    private String name;
+
+    private String content;
+
+    private Integer likes;
+
+    private LocalDateTime createdAt;
+
+    @TableField("is_author")
+    private Boolean isAuthor;
+
+    /** 回复某条子回复时记录被 @ 的昵称 */
+    private String replyTo;
+
+    /** 登录用户 id，未登录为 null */
+    private Long userId;
+}

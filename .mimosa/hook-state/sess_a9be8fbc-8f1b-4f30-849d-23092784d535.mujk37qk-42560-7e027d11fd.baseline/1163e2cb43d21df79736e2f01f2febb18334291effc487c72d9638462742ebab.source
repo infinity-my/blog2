@@ -1,0 +1,109 @@
+package com.example.bloghd.security;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * 公开写接口（留言/回复/点赞/行为埋点）的内存限流：滑动窗口 60 秒内，
+ * 同一访客身份或同一出口 IP 最多 {@link #MAX_WRITES_PER_WINDOW} 次写，超出即 429。
+ * 两个维度同时计数、任一触顶即拒：匿名身份键来自长效 cookie，扔 cookie 换身份
+ * 绕不过 IP 桶，换出口 IP 也绕不过身份桶；正常访客一分钟内的互动远够用。
+ * 键与内存双重有界（超长截断 + LRU 淘汰 + 过期清扫），与 {@link LoginRateLimiter}
+ * 同一套防撑爆手法；进程重启计数清零，攻击窗口随之重来。
+ */
+@Component
+public class AnonymousWriteRateLimiter {
+
+    public static final int MAX_WRITES_PER_WINDOW = 30;
+    private static final long WINDOW_MILLIS = 60 * 1000L;
+    /** 键长度上限：对齐 visitorKey（uuid 36 字符）与 IP 的合理宽度，假 IP 造不出超长键 */
+    static final int MAX_KEY_LENGTH = 260;
+    /** 每个映射最多跟踪的键数，超出按 LRU 淘汰最久未访问的键 */
+    static final int MAX_TRACKED_KEYS = 10_000;
+
+    private final Map<String, Deque<Long>> writesByVisitor = lruMap();
+    private final Map<String, Deque<Long>> writesByIp = lruMap();
+
+    private static Map<String, Deque<Long>> lruMap() {
+        // accessOrder=true：get/compute 都算访问，触顶时淘汰的是最久没动静的键
+        return new LinkedHashMap<>(64, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Deque<Long>> eldest) {
+                return size() > MAX_TRACKED_KEYS;
+            }
+        };
+    }
+
+    /** 窗口内还有名额就记一笔放行；任一维度触顶抛 429，文案带剩余等待秒数 */
+    public synchronized void checkOrThrow(String visitorKey, String ip) {
+        long now = System.currentTimeMillis();
+        sweepExpired(now);
+        Deque<Long> visitor = window(writesByVisitor, boundedKey(visitorKey), now);
+        Deque<Long> ip = window(writesByIp, boundedKey(ip), now);
+
+        Long limitHit = null;
+        if (visitor.size() >= MAX_WRITES_PER_WINDOW) {
+            limitHit = visitor.peekFirst();
+        }
+        if (ip.size() >= MAX_WRITES_PER_WINDOW) {
+            long ipEarliest = ip.peekFirst();
+            limitHit = limitHit == null ? ipEarliest : Math.min(limitHit, ipEarliest);
+        }
+        if (limitHit != null) {
+            long waitSeconds = Math.max(1, (limitHit + WINDOW_MILLIS - now) / 1000);
+            throw new AuthException(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_ATTEMPTS",
+                    "操作太频繁了，请 " + waitSeconds + " 秒后再试");
+        }
+        visitor.addLast(now);
+        ip.addLast(now);
+    }
+
+    /** 测试隔离用：清空两个维度，单例限流器的记录不跨测试留存 */
+    public synchronized void reset() {
+        writesByVisitor.clear();
+        writesByIp.clear();
+    }
+
+    private static Deque<Long> window(Map<String, Deque<Long>> writes, String key, long now) {
+        Deque<Long> window = writes.computeIfAbsent(key, k -> new ArrayDeque<>());
+        prune(window, now);
+        return window;
+    }
+
+    /**
+     * 全表清扫过期窗口（checkOrThrow 每次调用时触发）：只写了一两次就销声匿迹的键
+     * 也要能被回收，否则 map 会被一次性身份顶满上限、活着的攻击窗口反被 LRU 挤掉。
+     */
+    private void sweepExpired(long now) {
+        sweepExpired(writesByVisitor, now);
+        sweepExpired(writesByIp, now);
+    }
+
+    private static void sweepExpired(Map<String, Deque<Long>> writes, long now) {
+        Iterator<Map.Entry<String, Deque<Long>>> it = writes.entrySet().iterator();
+        while (it.hasNext()) {
+            Deque<Long> window = it.next().getValue();
+            prune(window, now);
+            if (window.isEmpty()) {
+                it.remove();
+            }
+        }
+    }
+
+    /** 超长身份截断入表：绕过列宽的假身份/假 IP 造不出无限长的键 */
+    static String boundedKey(String key) {
+        return key.length() <= MAX_KEY_LENGTH ? key : key.substring(0, MAX_KEY_LENGTH);
+    }
+
+    private static void prune(Deque<Long> window, long now) {
+        while (!window.isEmpty() && window.peekFirst() + WINDOW_MILLIS <= now) {
+            window.pollFirst();
+        }
+    }
+}

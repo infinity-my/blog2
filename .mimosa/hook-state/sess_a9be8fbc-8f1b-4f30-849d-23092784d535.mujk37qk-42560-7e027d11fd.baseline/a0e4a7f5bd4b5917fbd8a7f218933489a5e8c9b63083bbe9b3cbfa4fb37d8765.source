@@ -1,0 +1,31 @@
+import { ref } from 'vue'
+
+const STORAGE_KEY = 'blog-theme'
+
+const theme = ref('light')
+
+function apply(value) {
+  theme.value = value
+  document.documentElement.classList.toggle('dark', value === 'dark')
+  localStorage.setItem(STORAGE_KEY, value)
+}
+
+// 必须在 app mount 前调用一次，避免首帧闪白
+export function initTheme() {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored === 'light' || stored === 'dark') {
+    theme.value = stored
+  } else {
+    theme.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light'
+  }
+  document.documentElement.classList.toggle('dark', theme.value === 'dark')
+}
+
+export function useTheme() {
+  function toggleTheme() {
+    apply(theme.value === 'dark' ? 'light' : 'dark')
+  }
+  return { theme, toggleTheme }
+}

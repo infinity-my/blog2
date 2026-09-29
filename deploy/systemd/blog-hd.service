@@ -1,0 +1,44 @@
+# systemd 服务单元：blog-hd 后端
+#
+# 用法：
+#   1. 复制到服务器 /etc/systemd/system/blog-hd.service
+#   2. 把所有「改成…」占位填成真实值，并给下面三个空占位填上真实值：
+#      RESUME_PASSWORD / ADMIN_USERNAME / ADMIN_PASSWORD —— 真实口令只存在于
+#      服务器上的这一份文件，不要回传仓库；占位留空时简历闸门一直 503、后端拒绝启动
+#   3. systemctl daemon-reload && systemctl enable --now blog-hd
+#
+# 说明：java 路径按服务器实际调整（which java）；User=blog 需先创建系统用户
+#       （useradd -r -s /usr/sbin/nologin blog）。
+
+[Unit]
+Description=blog-hd Spring Boot backend
+After=network.target mysql.service
+
+[Service]
+User=blog
+WorkingDirectory=/opt/blog-hd
+ExecStart=/usr/bin/java -jar /opt/blog-hd/blog-hd.jar
+Restart=on-failure
+RestartSec=5
+
+# ===== 环境变量：生产配置集中在这里 =====
+Environment=SERVER_PORT=8080
+# HTTPS 上线后必须为 true：会话 cookie 加 Secure 标志，只在加密连接上传输
+Environment=COOKIE_SECURE=true
+# 以下三行必须填写真实值（空占位，避免占位符本身成为仓库里的已知口令）：
+# RESUME_PASSWORD 留空 = 简历解锁口令未配置，/api/resume/unlock 一律 503；
+# ADMIN_USERNAME / ADMIN_PASSWORD 留空 = 后端拒绝启动，不再内置默认管理员口令
+Environment=RESUME_PASSWORD=
+Environment=ADMIN_USERNAME=
+Environment=ADMIN_PASSWORD=
+Environment=DB_HOST=127.0.0.1
+Environment=DB_PORT=3306
+Environment=DB_NAME=blog_hd
+Environment=DB_USER=blog
+Environment=DB_PASSWORD=改成真实密码
+# NATIVE 让后端从 X-Forwarded-For 还原真实客户端 IP（反代部署的正确姿态，
+# 也是 application.yml 里的缺省值，这里显式写出来作双保险）
+Environment=FORWARD_HEADERS_STRATEGY=NATIVE
+
+[Install]
+WantedBy=multi-user.target

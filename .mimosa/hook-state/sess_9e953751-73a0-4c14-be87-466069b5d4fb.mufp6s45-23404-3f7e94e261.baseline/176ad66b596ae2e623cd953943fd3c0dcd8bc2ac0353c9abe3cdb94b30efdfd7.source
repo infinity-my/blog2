@@ -1,0 +1,51 @@
+import { del, post, put, request } from './index'
+
+// 后台专用接口。列表/详情复用公开的 /api/posts 与 /api/messages（本就公开），
+// 这里只封装「写」的那一半；失败抛出带 code / message 的 Error，message 可原样展示。
+
+/**
+ * 管理员登录；用户名或密码不对抛 code=BAD_CREDENTIALS，失败过多抛 code=TOO_MANY_ATTEMPTS
+ * @returns {Promise<{name:string}>}
+ */
+export function adminLogin(username, password) {
+  return post('/admin/login', { username, password })
+}
+
+/**
+ * 当前管理员身份；会话失效时抛 status=401
+ * @returns {Promise<{name:string}>}
+ */
+export function fetchAdminMe() {
+  return request('/admin/me')
+}
+
+export function adminLogout() {
+  return post('/admin/logout')
+}
+
+/**
+ * 文章完整表单：正文是结构化块数组（p/h2/quote/code/ul），由后端序列化落库
+ * @returns {Promise<{id:number,title:string}>} 新建返回 201 与新 id
+ */
+export function createPost(payload) {
+  return post('/admin/posts', payload)
+}
+
+export function updatePost(id, payload) {
+  return put(`/admin/posts/${id}`, payload)
+}
+
+/** 删除文章；id 不存在时抛 status=404 */
+export function deletePost(id) {
+  return del(`/admin/posts/${id}`)
+}
+
+/** 删除留言主楼，回复一并删除 */
+export function deleteMessage(id) {
+  return del(`/admin/messages/${id}`)
+}
+
+/** 只删一条回复，主楼保留 */
+export function deleteReply(id) {
+  return del(`/admin/messages/replies/${id}`)
+}

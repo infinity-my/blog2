@@ -1,0 +1,76 @@
+import { ref } from 'vue'
+import { defineStore } from 'pinia'
+import { VISITOR_NAME_KEY } from '../config/storage'
+import {
+  deleteAccount as deleteAccountRequest,
+  fetchMe,
+  login as loginRequest,
+  logout as logoutRequest,
+  register as registerRequest,
+} from '../api/auth'
+
+// 登录态由服务端的 HttpOnly 会话承载，前端只留「当前是谁」用于渲染，不保存任何凭证。
+// 各动作成功返回 null，失败返回带 code / message 的错误对象，由调用方决定怎么提示。
+
+export const useUserStore = defineStore('user', () => {
+  const currentUser = ref(null)
+
+  // 登录态要跑一次接口才能确认，在此之前不能断定「未登录」，
+  // 否则导航栏会先闪出登录按钮再跳成头像
+  const ready = ref(false)
+
+  /** 应用启动时恢复登录态；未登录不算错误 */
+  async function restore() {
+    try {
+      currentUser.value = await fetchMe()
+    } catch {
+      currentUser.value = null
+    } finally {
+      ready.value = true
+    }
+  }
+
+  /** @returns {Promise<null | {code:string, message:string, status:number}>} */
+  async function register(payload) {
+    try {
+      currentUser.value = await registerRequest(payload)
+      return null
+    } catch (error) {
+      return error
+    }
+  }
+
+  /** @returns {Promise<null | {code:string, message:string, status:number}>} */
+  async function login(email, password) {
+    try {
+      currentUser.value = await loginRequest(email, password)
+      return null
+    } catch (error) {
+      return error
+    }
+  }
+
+  /** 退出登录只清登录态，本机保留的访客昵称不动 */
+  async function logout() {
+    try {
+      await logoutRequest()
+    } catch {
+      // 会话可能已经失效，本地照常清掉
+    }
+    currentUser.value = null
+  }
+
+  /** @returns {Promise<null | {code:string, message:string, status:number}>} */
+  async function deleteAccount(password) {
+    try {
+      await deleteAccountRequest(password)
+    } catch (error) {
+      return error
+    }
+    currentUser.value = null
+    localStorage.removeItem(VISITOR_NAME_KEY)
+    return null
+  }
+
+  return { currentUser, ready, restore, register, login, logout, deleteAccount }
+})

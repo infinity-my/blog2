@@ -1,0 +1,106 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+import { useAuthStore } from '@/stores/auth'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+    },
+    {
+      path: '/',
+      component: () => import('@/views/AdminLayout.vue'),
+      children: [
+        { path: '', redirect: { name: 'dashboard' } },
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+        },
+        {
+          path: 'posts',
+          name: 'posts',
+          component: () => import('@/views/PostsView.vue'),
+        },
+        {
+          path: 'messages',
+          name: 'messages',
+          component: () => import('@/views/MessagesView.vue'),
+        },
+        {
+          path: 'comments',
+          name: 'comments',
+          component: () => import('@/views/CommentsView.vue'),
+        },
+        {
+          path: 'essays',
+          name: 'essays',
+          component: () => import('@/views/EssaysManageView.vue'),
+        },
+        {
+          path: 'album',
+          name: 'album',
+          component: () => import('@/views/AlbumManageView.vue'),
+        },
+        {
+          path: 'tags',
+          name: 'tags',
+          component: () => import('@/views/TagsView.vue'),
+        },
+        {
+          path: 'projects',
+          name: 'projects',
+          component: () => import('@/views/ProjectsView.vue'),
+        },
+        {
+          path: 'users',
+          name: 'users',
+          component: () => import('@/views/UsersView.vue'),
+        },
+        {
+          path: 'accounts',
+          name: 'accounts',
+          component: () => import('@/views/AccountsView.vue'),
+        },
+        {
+          path: 'settings',
+          name: 'settings',
+          component: () => import('@/views/SiteSettingsView.vue'),
+        },
+        {
+          path: 'resume',
+          name: 'resume',
+          component: () => import('@/views/ResumeSettingsView.vue'),
+        },
+        {
+          path: 'stats',
+          name: 'stats',
+          component: () => import('@/views/StatsView.vue'),
+        },
+        {
+          path: 'behavior',
+          name: 'behavior',
+          component: () => import('@/views/BehaviorView.vue'),
+        },
+      ],
+    },
+    { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } },
+  ],
+})
+
+// 先探一次身份再放行：未登录只进登录页，已登录不再看登录页
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  await auth.init()
+  if (to.name !== 'login' && !auth.isLoggedIn) {
+    return { name: 'login' }
+  }
+  if (to.name === 'login' && auth.isLoggedIn) {
+    return { name: 'dashboard' }
+  }
+})
+
+export default router

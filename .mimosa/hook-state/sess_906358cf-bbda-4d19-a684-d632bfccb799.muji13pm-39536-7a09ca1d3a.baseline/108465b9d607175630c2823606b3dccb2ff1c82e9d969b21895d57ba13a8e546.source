@@ -1,0 +1,47 @@
+package com.example.bloghd.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import lombok.Data;
+
+import java.util.List;
+
+/** 项目展示：前台「项目」页与详情页的数据源，readme 为 markdown 源文本 */
+@Data
+@TableName(value = "project", autoResultMap = true)
+public class Project {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String name;
+
+    /** 详情路由 /projects/:slug 用的短标识 */
+    private String slug;
+
+    private String description;
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> stack;
+
+    /** 开源中 | 开发中 | 已归档 */
+    private String status;
+
+    private String repo;
+
+    private String demo;
+
+    private String period;
+
+    private String role;
+
+    private String readme;
+
+    /** 数字越小越靠前 */
+    private Integer sortOrder;
+
+    private Boolean visible;
+}

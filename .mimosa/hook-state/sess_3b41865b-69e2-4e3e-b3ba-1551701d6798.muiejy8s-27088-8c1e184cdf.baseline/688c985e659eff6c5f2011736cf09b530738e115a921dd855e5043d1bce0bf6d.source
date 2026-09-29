@@ -1,0 +1,21 @@
+package com.example.bloghd.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.bloghd.entity.SiteVisit;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.time.LocalDate;
+
+@Mapper
+public interface SiteVisitMapper extends BaseMapper<SiteVisit> {
+
+    @Insert("INSERT INTO site_visit (stat_date, visits) VALUES (#{date}, 1) " +
+            "ON DUPLICATE KEY UPDATE visits = visits + 1")
+    int upsertToday(@Param("date") LocalDate date);
+
+    @Select("SELECT COALESCE(SUM(visits), 0) FROM site_visit")
+    long sumVisits();
+}

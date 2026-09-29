@@ -1,0 +1,10 @@
+package com.example.bloghd.security;
+
+import java.io.Serializable;
+
+/**
+ * 会话里的登录身份。只带展示与归属需要的字段，密码哈希不进会话。
+ * 存进 HttpSession，所以要可序列化。
+ */
+public record AuthPrincipal(Long id, String email, String name) implements Serializable {
+}

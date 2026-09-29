@@ -1,0 +1,67 @@
+package com.example.bloghd.security;
+
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import com.example.bloghd.mapper.AppUserMapper;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+/**
+ * 会话与账号当前状态绑定。会话里的身份在登录时固化，停用/删除账号、后台重置密码
+ * 都不会波及已发出的会话；这里每个请求回查一次账号现状（管理员要求存在且启用，
+ * 访客要求存在），失配即当场吊销：会话作废 + 401，冻结的旧会话最多活一个请求。
+ * 代价是每个已登录请求 1 次主键查询，匿名请求零开销（principal 不是账号直接放行）。
+ * 挂在鉴权之后（SecurityConfig 里 addFilterAfter AuthorizationFilter），
+ * 拿得到已加载的 SecurityContext，也不会影响 anonymous 的放行规则。
+ */
+public class AccountStateFilter extends OncePerRequestFilter {
+
+    private final AdminAccountMapper adminAccountMapper;
+    private final AppUserMapper appUserMapper;
+
+    public AccountStateFilter(AdminAccountMapper adminAccountMapper, AppUserMapper appUserMapper) {
+        this.adminAccountMapper = adminAccountMapper;
+        this.appUserMapper = appUserMapper;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain) throws ServletException, IOException {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null
+                && auth.getPrincipal() instanceof AuthPrincipal principal
+                && !accountLive(auth, principal.id())) {
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                session.invalidate();
+            }
+            SecurityContextHolder.clearContext();
+            response.sendError(HttpStatus.UNAUTHORIZED.value());
+            return;
+        }
+        chain.doFilter(request, response);
+    }
+
+    /** 管理员要求账号存在且 enabled；访客只要求存在（app_user 没有停用位，删行即吊销） */
+    private boolean accountLive(Authentication auth, Long accountId) {
+        boolean admin = auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_ADMIN"::equals);
+        if (admin) {
+            AdminAccount account = adminAccountMapper.selectById(accountId);
+            return account != null && Boolean.TRUE.equals(account.getEnabled());
+        }
+        return appUserMapper.selectById(accountId) != null;
+    }
+}

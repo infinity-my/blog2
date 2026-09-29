@@ -1,0 +1,66 @@
+package com.example.bloghd.security;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class LoginRateLimiterTest {
+
+    private final LoginRateLimiter limiter = new LoginRateLimiter();
+
+    @Test
+    void blocksIdentityOnlyAfterFiveFailures() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY - 1; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+            assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                    .doesNotThrowAnyException();
+        }
+
+        limiter.recordFailure("user@example.com", "10.0.0.1");
+        assertThatThrownBy(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                .isInstanceOfSatisfying(AuthException.class, e -> {
+                    assertThat(e.status()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+                    assertThat(e.code()).isEqualTo("TOO_MANY_ATTEMPTS");
+                    assertThat(e.getMessage()).contains("分钟");
+                });
+    }
+
+    @Test
+    void identityLockDoesNotAffectOtherIpsOrEmails() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+        }
+
+        // 换 IP 或换邮箱都不受牵连：攻击者锁不死别人的邮箱，也锁不死整个出口以外的人
+        assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.2"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> limiter.checkOrThrow("other@example.com", "10.0.0.1"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void resetClearsBothCounters() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IDENTITY; i++) {
+            limiter.recordFailure("user@example.com", "10.0.0.1");
+        }
+        limiter.reset("user@example.com", "10.0.0.1");
+
+        assertThatCode(() -> limiter.checkOrThrow("user@example.com", "10.0.0.1"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void ipWindowBlocksAcrossEmails() {
+        for (int i = 0; i < LoginRateLimiter.MAX_FAILURES_PER_IP; i++) {
+            // 每个邮箱只失败一次，不触发身份锁，靠 IP 维度单独累积
+            limiter.recordFailure("user" + i + "@example.com", "10.0.0.9");
+        }
+
+        assertThatThrownBy(() -> limiter.checkOrThrow("fresh@example.com", "10.0.0.9"))
+                .isInstanceOfSatisfying(AuthException.class,
+                        e -> assertThat(e.code()).isEqualTo("TOO_MANY_ATTEMPTS"));
+    }
+}

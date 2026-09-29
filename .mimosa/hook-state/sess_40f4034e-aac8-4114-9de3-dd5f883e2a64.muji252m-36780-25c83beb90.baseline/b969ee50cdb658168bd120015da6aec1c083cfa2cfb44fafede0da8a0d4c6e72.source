@@ -1,0 +1,53 @@
+package com.example.bloghd.security;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.example.bloghd.entity.AdminAccount;
+import com.example.bloghd.mapper.AdminAccountMapper;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+
+/**
+ * 管理员账号已迁进 admin_account 表：启动时把配置里的 blog.admin.* 种进去。
+ * 表里已有同名账号就跳过 —— 后台改过口令以表里为准，重启不会盖回去；
+ * 忘了口令时删掉对应行再重启，即可按配置重新种入。
+ */
+@Component
+public class AdminAccountSeeder {
+
+    private final AdminAccountMapper adminAccountMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final String adminUsername;
+    private final String adminPassword;
+
+    public AdminAccountSeeder(AdminAccountMapper adminAccountMapper,
+                              PasswordEncoder passwordEncoder,
+                              @Value("${blog.admin.username}") String adminUsername,
+                              @Value("${blog.admin.password}") String adminPassword) {
+        this.adminAccountMapper = adminAccountMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.adminUsername = adminUsername;
+        this.adminPassword = adminPassword;
+    }
+
+    /** 挂在单例初始化阶段，早于 HTTP 端口开听，登录口不会有「账号还没种上」的窗口 */
+    @PostConstruct
+    void seed() {
+        String username = adminUsername.trim();
+        Long exists = adminAccountMapper.selectCount(Wrappers.<AdminAccount>lambdaQuery()
+                .eq(AdminAccount::getUsername, username));
+        if (exists != null && exists > 0) {
+            return;
+        }
+        AdminAccount account = new AdminAccount();
+        account.setUsername(username);
+        account.setDisplayName("博主");
+        account.setPasswordHash(passwordEncoder.encode(adminPassword));
+        account.setEnabled(true);
+        account.setCreatedAt(LocalDateTime.now().withNano(0));
+        adminAccountMapper.insert(account);
+    }
+}

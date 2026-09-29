@@ -1,0 +1,14 @@
+package com.example.bloghd.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.bloghd.entity.MessageReply;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+@Mapper
+public interface MessageReplyMapper extends BaseMapper<MessageReply> {
+
+    @Update("UPDATE message_reply SET likes = GREATEST(likes + #{delta}, 0) WHERE id = #{id}")
+    int addLikes(@Param("id") Long id, @Param("delta") int delta);
+}

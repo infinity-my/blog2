@@ -1,0 +1,15 @@
+package com.example.bloghd.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.example.bloghd.entity.Message;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+@Mapper
+public interface MessageMapper extends BaseMapper<Message> {
+
+    /** 点赞数增减，GREATEST 兜底避免取消点赞把计数压成负数 */
+    @Update("UPDATE message SET likes = GREATEST(likes + #{delta}, 0) WHERE id = #{id}")
+    int addLikes(@Param("id") Long id, @Param("delta") int delta);
+}
